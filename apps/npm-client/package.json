@@ -1,0 +1,16 @@
+{
+  "name": "console-stream-client",
+  "version": "0.0.1",
+  "description": "Drop-in client that streams browser runtime events to a local console-stream-mcp server",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@console-stream-mcp/protocol": "0.0.1",
+    "@console-stream-mcp/shared-types": "0.0.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@console-stream-mcp/mcp-server",
+  "version": "0.0.1",
+  "description": "MCP server exposing live browser runtime events to AI coding agents",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "console-stream-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "dependencies": {
+    "@console-stream-mcp/protocol": "0.0.1",
+    "@console-stream-mcp/shared-types": "0.0.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  }
+}

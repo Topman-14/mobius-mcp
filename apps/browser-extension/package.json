@@ -1,0 +1,15 @@
+{
+  "name": "@console-stream-mcp/browser-extension",
+  "version": "0.0.1",
+  "description": "Chromium extension that captures browser runtime events and streams them to a local console-stream-mcp server",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@console-stream-mcp/protocol": "0.0.1",
+    "@console-stream-mcp/shared-types": "0.0.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "console-stream-mcp",
+  "private": true,
+  "description": "Give AI coding agents live access to your web app's runtime via MCP.",
+  "license": "MIT",
+  "author": "Topman-14",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Topman-14/console-stream-mcp.git"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w packages/shared-types -w packages/protocol -w apps/mcp-server -w apps/npm-client -w apps/browser-extension",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
