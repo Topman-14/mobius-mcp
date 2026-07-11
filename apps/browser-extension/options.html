@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>console-stream-mcp settings</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; max-width: 480px; margin: 24px auto; padding: 0 16px; }
+      h1 { font-size: 16px; }
+      p.hint { color: #666; font-size: 12px; }
+      ul { list-style: none; padding: 0; }
+      li { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #eee; }
+      .add-row { display: flex; gap: 8px; margin-top: 12px; }
+      .add-row input { flex: 1; padding: 6px; }
+      button { cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <h1>console-stream-mcp — auto-enable rules</h1>
+    <p class="hint">Tabs matching a rule below auto-enable capture on navigation, without clicking the toolbar icon. Pattern format: <code>hostname:port</code>, e.g. <code>localhost:5173</code> or <code>localhost:*</code>.</p>
+    <ul id="rules"></ul>
+    <div class="add-row">
+      <input id="pattern" placeholder="localhost:5173" />
+      <button id="add">Add rule</button>
+    </div>
+    <script src="iife/options.js"></script>
+  </body>
+</html>

@@ -8,6 +8,12 @@ Its purpose is to give AI coding agents (Claude Code, Codex CLI, Gemini CLI, etc
 
 Everything should run locally. No cloud services, telemetry, or external APIs.
 
+## Direction (living doc)
+
+This doc describes the original scope — a log/event bridge — which is built (see "Stage A" in [ROADMAP.md](./ROADMAP.md)). The project's actual direction is broader: not just a bridge that reads browser state, but a **browser runtime service** the agent can command. Synchronous tools answer questions about existing state (Stage A); asynchronous tools, backed by a shared job system, initiate work that takes time (recordings, screenshots, profiling, debug sessions). Nothing is published yet, so none of this is versioned — ROADMAP.md tracks build stages, not releases. It supersedes this doc's "MCP Tools" and "Future Enhancements" sections below where they conflict.
+
+One consequence: the "browser client implementations must be indistinguishable" principle below holds for *event ingestion* (both clients emit identical payloads), but not for *commands* — many later-stage capabilities (screenshots, DOM/performance profiling, `evaluate_js`) require Chrome DevTools Protocol access only the extension has. The protocol tracks this via a `capabilities` field so command tools fail clearly against a tab that can't support them, rather than hanging.
+
 ## High Level Architecture
 
 The project consists of three parts:

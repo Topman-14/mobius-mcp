@@ -1,0 +1,16 @@
+{
+  "name": "@console-stream-mcp/capture-core",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Runtime hook patching (console, errors, network) shared by the browser extension and npm client",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@console-stream-mcp/protocol": "0.0.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

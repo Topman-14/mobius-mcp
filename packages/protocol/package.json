@@ -1,14 +1,12 @@
 {
   "name": "@console-stream-mcp/protocol",
   "version": "0.0.1",
-  "description": "Versioned event and message schema shared by all console-stream-mcp clients and the server",
+  "private": true,
+  "description": "Event schema, message envelope, and versioning shared by all console-stream-mcp clients and the server",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "dependencies": {
-    "@console-stream-mcp/shared-types": "0.0.1"
-  },
   "scripts": {
     "build": "tsc -p tsconfig.json"
   }

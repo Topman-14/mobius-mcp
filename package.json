@@ -13,7 +13,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w packages/shared-types -w packages/protocol -w apps/mcp-server -w apps/npm-client -w apps/browser-extension",
+    "build": "npm run build -w packages/protocol -w packages/capture-core -w apps/mcp-server -w apps/npm-client -w apps/browser-extension",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present"
   },

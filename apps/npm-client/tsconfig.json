@@ -2,8 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "lib": ["ES2022", "DOM"]
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/protocol" }, { "path": "../../packages/shared-types" }]
+  "references": [{ "path": "../../packages/protocol" }, { "path": "../../packages/capture-core" }]
 }

@@ -5,11 +5,13 @@
   "license": "MIT",
   "private": true,
   "type": "module",
-  "dependencies": {
+  "devDependencies": {
+    "@console-stream-mcp/capture-core": "0.0.1",
     "@console-stream-mcp/protocol": "0.0.1",
-    "@console-stream-mcp/shared-types": "0.0.1"
+    "@types/chrome": "^0.0.280",
+    "tsup": "^8.3.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsup src/background.ts src/content-script.ts src/injected.ts src/popup.ts src/options.ts --format iife --target es2020 --clean --legacy-output && node -e \"for (const f of ['manifest.json','popup.html','options.html']) require('fs').copyFileSync(f, 'dist/'+f)\""
   }
 }
