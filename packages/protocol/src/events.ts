@@ -35,6 +35,7 @@ export interface NetworkEvent extends EventBase {
   status?: number;
   durationMs?: number;
   error?: string;
+  requestHeaders?: Record<string, string>;
 }
 
 export interface NavigationEvent extends EventBase {

@@ -1,0 +1,258 @@
+import { useEffect, useState } from "react";
+import { GearSix, Circle, Play, Pause, Stop, Camera, Code, Trash, ArrowSquareOut, Infinity as InfinityIcon } from "@phosphor-icons/react";
+import { useTheme } from "../../hooks/use-theme.js";
+import { usePopupPort } from "../../hooks/use-popup-port.js";
+import type { TabState } from "../../lib/tab-state.js";
+import { Button } from "../../components/ui/button.js";
+import { Badge } from "../../components/ui/badge.js";
+import { Card, CardContent } from "../../components/ui/card.js";
+import { ScrollArea } from "../../components/ui/scroll-area.js";
+import { Separator } from "../../components/ui/separator.js";
+import { cn } from "../../lib/utils.js";
+import { WS_URL, REPO_URL, STATUS_LABEL, STATUS_DOT, COUNTER_ITEMS, KIND_DOT } from "./data.js";
+
+function formatElapsed(startedAt: number): string {
+  const seconds = Math.floor((Date.now() - startedAt) / 1000);
+  const m = Math.floor(seconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const s = (seconds % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+function formatAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 2) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  return `${Math.floor(seconds / 60)}m ago`;
+}
+
+function formatClock(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString(undefined, { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab;
+}
+
+function hostOf(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+export function Popup() {
+  useTheme();
+
+  const [tabId, setTabId] = useState<number | undefined>();
+  const [host, setHost] = useState<string | undefined>();
+  const [state, setState] = useState<TabState | null | undefined>(undefined);
+  const [elapsed, setElapsed] = useState<string | undefined>();
+
+  useEffect(() => {
+    getActiveTab().then(async (tab) => {
+      setTabId(tab?.id);
+      setHost(hostOf(tab?.url));
+      if (tab?.id === undefined) return;
+      const { state } = await chrome.runtime.sendMessage({ type: "console-stream-mcp/get-state", tabId: tab.id });
+      setState(state);
+    });
+  }, []);
+
+  const push = usePopupPort(tabId);
+  const recordingStartedAt = push?.live.recordingStartedAt;
+
+  useEffect(() => {
+    if (!recordingStartedAt) {
+      setElapsed(undefined);
+      return;
+    }
+    setElapsed(formatElapsed(recordingStartedAt));
+    const interval = setInterval(() => setElapsed(formatElapsed(recordingStartedAt)), 1000);
+    return () => clearInterval(interval);
+  }, [recordingStartedAt]);
+
+  const start = async () => {
+    if (tabId === undefined) return;
+    const { state: next } = await chrome.runtime.sendMessage({ type: "console-stream-mcp/toggle", tabId });
+    setState(next);
+  };
+
+  const stop = async () => {
+    if (tabId === undefined || !state) return;
+    await chrome.runtime.sendMessage({ type: "console-stream-mcp/toggle", tabId });
+    setState(null);
+  };
+
+  const pause = async () => {
+    if (tabId === undefined || !state) return;
+    const { state: next } = await chrome.runtime.sendMessage({ type: "console-stream-mcp/set-paused", tabId, paused: !state.paused });
+    setState(next);
+  };
+
+  const clear = () => {
+    if (tabId === undefined) return;
+    chrome.runtime.sendMessage({ type: "console-stream-mcp/clear", tabId });
+  };
+
+  const runLocalCommand = (command: "take_screenshot" | "capture_dom") => {
+    if (tabId === undefined) return;
+    chrome.runtime.sendMessage({ type: "console-stream-mcp/local-command", tabId, command });
+  };
+
+  const status = push?.connection.status ?? "disconnected";
+  const counters = push?.live.counters ?? { console: 0, errors: 0, network: 0, runtime: 0 };
+  const feed = push?.live.feed ?? [];
+  const capturing = state && !state.paused;
+
+  return (
+    <div className="flex flex-col divide-y divide-border">
+      {/* connection header */}
+      <div className="flex items-center justify-between px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className={cn("h-2 w-2 rounded-none", STATUS_DOT[status])} />
+          <InfinityIcon size={16} weight="bold" className="text-primary" />
+          <span className="text-sm font-semibold">console-stream-mcp</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{STATUS_LABEL[status]}</span>
+          <button
+            onClick={() => chrome.runtime.openOptionsPage()}
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Settings"
+          >
+            <GearSix size={16} weight="bold" />
+          </button>
+        </div>
+      </div>
+
+      {/* current tab */}
+      <div className="flex items-center justify-between px-3 py-2.5">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium">{host ?? "No active tab"}</div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            {state ? (
+              <>
+                {capturing && <Circle size={7} weight="fill" className="text-destructive" />}
+                <span>
+                  {state.paused ? "Paused" : "Capturing"}, {state.mode === "rule" ? "auto rule" : "manual"}
+                </span>
+              </>
+            ) : (
+              "Not capturing"
+            )}
+          </div>
+        </div>
+        {elapsed && (
+          <Badge variant="outline" className="font-mono tabular-nums">
+            {elapsed}
+          </Badge>
+        )}
+      </div>
+
+      {/* event counters */}
+      <div className="px-3 py-3">
+        <div className="grid grid-cols-4 gap-px overflow-hidden rounded-lg border border-border bg-border">
+          {COUNTER_ITEMS.map(({ key, label, icon: Icon, tone }) => (
+            <div key={key} className="flex flex-col items-center gap-1 bg-card px-1 py-2.5">
+              <Icon size={14} className={tone} />
+              <span className="font-mono text-sm font-semibold tabular-nums">{counters[key]}</span>
+              <span className="text-xxs text-muted-foreground">{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* mcp status */}
+      <div className="px-3 py-2.5">
+        <Card size="sm">
+          <CardContent className="flex items-center justify-between">
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-muted-foreground">MCP server</div>
+              <div className="truncate font-mono text-xs">{WS_URL}</div>
+            </div>
+            <div className="shrink-0 text-right text-xs">
+              {status === "connected" ? (
+                <span className="text-success">{push?.connection.lastEventAt ? formatAgo(push.connection.lastEventAt) : "connected"}</span>
+              ) : status === "connecting" ? (
+                <span className="text-warning">connecting…</span>
+              ) : (
+                <span className="text-muted-foreground">not running</span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* live feed */}
+      {feed.length === 0 ? (
+        <div className="px-3 py-6 text-center text-xs text-muted-foreground">No events yet</div>
+      ) : (
+        <ScrollArea className="h-32">
+          <ul className="flex flex-col gap-1.5 px-3 py-2">
+            {feed.map((item, i) => (
+              <li key={`${item.timestamp}-${i}`} className="flex items-start gap-2 text-xs">
+                <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-none ${KIND_DOT[item.kind]}`} />
+                <span className="shrink-0 font-mono text-muted-foreground">{formatClock(item.timestamp)}</span>
+                <span className="truncate">{item.summary}</span>
+              </li>
+            ))}
+          </ul>
+        </ScrollArea>
+      )}
+
+      {/* controls + quick actions */}
+      <div className="flex flex-col gap-2 px-3 py-3">
+        {!state ? (
+          <Button className="w-full" onClick={start}>
+            <Play size={14} weight="fill" />
+            Start capture
+          </Button>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="secondary" onClick={pause}>
+              {state.paused ? (
+                <>
+                  <Play size={14} weight="fill" />
+                  Resume
+                </>
+              ) : (
+                <>
+                  <Pause size={14} weight="fill" />
+                  Pause
+                </>
+              )}
+            </Button>
+            <Button variant="outline" onClick={stop}>
+              <Stop size={14} weight="fill" />
+              Stop
+            </Button>
+          </div>
+        )}
+        <Separator />
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="outline" size="sm" disabled={!state} onClick={() => runLocalCommand("take_screenshot")}>
+            <Camera size={13} />
+            Screenshot
+          </Button>
+          <Button variant="outline" size="sm" disabled={!state} onClick={() => runLocalCommand("capture_dom")}>
+            <Code size={13} />
+            Capture DOM
+          </Button>
+          <Button variant="outline" size="sm" onClick={clear}>
+            <Trash size={13} />
+            Clear
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => chrome.tabs.create({ url: REPO_URL })}>
+            <ArrowSquareOut size={13} />
+            Repo
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

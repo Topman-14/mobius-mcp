@@ -1,11 +1,34 @@
+import { captureOptionsSetting, privacyOptionsSetting } from "./lib/capture-options.js";
+
 const MESSAGE_SOURCE = "console-stream-mcp";
 const RELAYED_COMMANDS = new Set(["stop", "start-dom", "stop-dom"]);
 
 window.addEventListener("message", (message) => {
   if (message.source !== window) return;
   const data = message.data;
-  if (!data || data.source !== MESSAGE_SOURCE || !data.event) return;
+  if (!data || data.source !== MESSAGE_SOURCE) return;
 
+  if (data.type === "ready") {
+    Promise.all([captureOptionsSetting.get(), privacyOptionsSetting.get()]).then(([capture, privacy]) => {
+      window.postMessage(
+        {
+          source: MESSAGE_SOURCE,
+          type: "init",
+          options: {
+            console: capture.console,
+            errors: capture.errors,
+            network: capture.network,
+            dom: capture.dom,
+            redaction: privacy,
+          },
+        },
+        "*",
+      );
+    });
+    return;
+  }
+
+  if (!data.event) return;
   chrome.runtime.sendMessage({ type: "console-stream-mcp/event", event: data.event });
 });
 

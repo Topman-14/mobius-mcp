@@ -1,34 +1,65 @@
 import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from "@console-stream-mcp/protocol";
 import type { CapturedEvent } from "@console-stream-mcp/capture-core";
-import { findMatchingRule, getRules } from "./rules.js";
-import { getTabState, setTabState, clearTabState, getTabIdForClient, type TabState } from "./tabState.js";
-import { sendCdp, detach, findRequestId } from "./cdp.js";
-
-const PORT = 7331;
+import { findMatchingRule, getRules } from "./lib/rules.js";
+import { getTabState, setTabState, setPaused, clearTabState, getTabIdForClient, type TabState } from "./lib/tab-state.js";
+import { sendCdp, detach, findRequestId } from "./lib/cdp.js";
+import {
+  setConnectionStatus,
+  recordEvent,
+  startRecording,
+  stopRecording,
+  clearTabLiveState,
+  clearAllTabLiveState,
+  registerPort,
+  getAllLiveState,
+  connectionStatus,
+  lastEventAt,
+} from "./lib/live-state.js";
+import { mcpSettings, performanceSettings, generalSettings, debugSettings } from "./lib/settings.js";
 
 let ws: WebSocket | null = null;
 let retryDelay = 500;
+let maxQueueSize = 500;
+let verboseLogs = false;
+let notificationsEnabled = false;
 const queue: ClientMessage[] = [];
+
+const NOTIFICATION_ICON =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" rx="24" fill="#2563eb"/><circle cx="64" cy="64" r="28" fill="white"/></svg>',
+  );
+
+function debugLog(...args: unknown[]) {
+  if (verboseLogs) console.debug("[console-stream-mcp]", ...args);
+}
 
 function send(message: ClientMessage) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(message));
   } else {
     queue.push(message);
+    if (queue.length > maxQueueSize) queue.splice(0, queue.length - maxQueueSize);
   }
 }
 
-function connect() {
-  ws = new WebSocket(`ws://localhost:${PORT}`);
+async function connect() {
+  const mcp = await mcpSettings.get();
+  setConnectionStatus("connecting");
+  ws = new WebSocket(`ws://localhost:${mcp.port}`);
 
   ws.addEventListener("open", () => {
-    retryDelay = 500;
+    retryDelay = mcp.reconnectBaseDelayMs;
+    setConnectionStatus("connected");
+    debugLog("connected to mcp server", mcp.port);
     while (queue.length > 0) {
       ws!.send(JSON.stringify(queue.shift()!));
     }
   });
 
   ws.addEventListener("close", () => {
+    setConnectionStatus("disconnected");
+    debugLog("disconnected from mcp server, retrying in", retryDelay, "ms");
     setTimeout(connect, retryDelay);
     retryDelay = Math.min(retryDelay * 2, 10_000);
   });
@@ -51,6 +82,19 @@ function connect() {
       send({ version: PROTOCOL_VERSION, kind: "ack", commandId: message.commandId, error: err instanceof Error ? err.message : String(err) });
     }
   });
+}
+
+async function screenshotTab(tabId: number): Promise<{ format: "png"; dataBase64: string }> {
+  const data = await sendCdp(tabId, "Page.captureScreenshot", { format: "png" });
+  return { format: "png", dataBase64: (data as { data: string }).data };
+}
+
+async function captureDomTab(tabId: number): Promise<{ html: string }> {
+  const result = (await sendCdp(tabId, "Runtime.evaluate", {
+    expression: "document.documentElement.outerHTML",
+    returnByValue: true,
+  })) as { result: { value: string } };
+  return { html: result.result.value };
 }
 
 async function runCommand(message: ServerMessage): Promise<unknown> {
@@ -94,10 +138,8 @@ async function runCommand(message: ServerMessage): Promise<unknown> {
     }
 
     // --- CDP-backed (chrome.debugger), Stage D ---
-    case "take_screenshot": {
-      const data = await sendCdp(tabId, "Page.captureScreenshot", { format: "png" });
-      return { format: "png", dataBase64: (data as { data: string }).data };
-    }
+    case "take_screenshot":
+      return screenshotTab(tabId);
     case "capture_full_page": {
       const metrics = (await sendCdp(tabId, "Page.getLayoutMetrics")) as {
         cssContentSize: { width: number; height: number };
@@ -123,13 +165,8 @@ async function runCommand(message: ServerMessage): Promise<unknown> {
       });
       return { format: "png", dataBase64: (data as { data: string }).data };
     }
-    case "capture_dom": {
-      const result = (await sendCdp(tabId, "Runtime.evaluate", {
-        expression: "document.documentElement.outerHTML",
-        returnByValue: true,
-      })) as { result: { value: string } };
-      return { html: result.result.value };
-    }
+    case "capture_dom":
+      return captureDomTab(tabId);
     case "capture_accessibility_tree": {
       return sendCdp(tabId, "Accessibility.getFullAXTree");
     }
@@ -169,6 +206,29 @@ async function runCommand(message: ServerMessage): Promise<unknown> {
   }
 }
 
+let autoClearTimer: ReturnType<typeof setInterval> | undefined;
+
+async function bootSettings() {
+  const [performance, debug, general] = await Promise.all([performanceSettings.get(), debugSettings.get(), generalSettings.get()]);
+  maxQueueSize = performance.bufferSize;
+  verboseLogs = debug.verboseLogs;
+  notificationsEnabled = general.notifications;
+
+  clearInterval(autoClearTimer);
+  autoClearTimer = setInterval(clearAllTabLiveState, performance.autoClearMinutes * 60_000);
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "sync") return;
+  if (changes.performanceSettings || changes.debugSettings || changes.generalSettings) bootSettings();
+  if (changes.mcpSettings) {
+    debugLog("mcp settings changed, reconnecting");
+    retryDelay = 0;
+    ws?.close();
+  }
+});
+
+bootSettings();
 connect();
 
 async function enableTab(tabId: number, mode: TabState["mode"]): Promise<string | undefined> {
@@ -178,14 +238,17 @@ async function enableTab(tabId: number, mode: TabState["mode"]): Promise<string 
   const clientId = crypto.randomUUID();
   await setTabState(tabId, { clientId, mode });
 
-  await chrome.scripting.executeScript({ target: { tabId }, files: ["iife/content-script.js"] });
-  await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", files: ["iife/injected.js"] });
+  await chrome.scripting.executeScript({ target: { tabId }, files: ["src/content-script.js"] });
+  await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", files: ["src/injected.js"] });
 
   send({
     version: PROTOCOL_VERSION,
     kind: "hello",
     client: { clientId, clientType: "extension", pageUrl: tab.url, title: tab.title, capabilities: ["cdp"] },
   });
+
+  debugLog("enabled tab", tabId, mode);
+  startRecording(tabId);
 
   return clientId;
 }
@@ -196,6 +259,7 @@ async function disableTab(tabId: number): Promise<void> {
 
   send({ version: PROTOCOL_VERSION, kind: "bye", clientId: state.clientId });
   await clearTabState(tabId);
+  stopRecording(tabId);
 
   try {
     await chrome.tabs.sendMessage(tabId, { type: "console-stream-mcp/command", command: "stop" });
@@ -204,13 +268,33 @@ async function disableTab(tabId: number): Promise<void> {
   }
 }
 
+async function runLocalCommand(tabId: number, command: string): Promise<unknown> {
+  switch (command) {
+    case "take_screenshot":
+      return screenshotTab(tabId);
+    case "capture_dom":
+      return captureDomTab(tabId);
+    default:
+      throw new Error(`Unknown local command: ${command}`);
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "console-stream-mcp/event" && sender.tab?.id !== undefined) {
     const tabId = sender.tab.id;
     getTabState(tabId).then((state) => {
-      if (!state) return;
+      if (!state || state.paused) return;
       const event: CapturedEvent = { ...message.event, metadata: { ...message.event.metadata, tabId } };
       send({ version: PROTOCOL_VERSION, kind: "event", clientId: state.clientId, event });
+      const bucket = recordEvent(tabId, event);
+      if (bucket === "errors" && notificationsEnabled) {
+        chrome.notifications.create({
+          type: "basic",
+          iconUrl: NOTIFICATION_ICON,
+          title: "console-stream-mcp",
+          message: "message" in event ? event.message : "reason" in event ? event.reason : "Runtime error captured",
+        });
+      }
     });
     return;
   }
@@ -232,6 +316,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+
+  if (message?.type === "console-stream-mcp/set-paused") {
+    setPaused(message.tabId, message.paused).then((state) => sendResponse({ state: state ?? null }));
+    return true;
+  }
+
+  if (message?.type === "console-stream-mcp/clear") {
+    clearTabLiveState(message.tabId);
+    sendResponse({ cleared: true });
+    return true;
+  }
+
+  if (message?.type === "console-stream-mcp/local-command") {
+    runLocalCommand(message.tabId, message.command)
+      .then((result) => sendResponse({ result }))
+      .catch((err) => sendResponse({ error: err instanceof Error ? err.message : String(err) }));
+    return true;
+  }
+
+  if (message?.type === "console-stream-mcp/export-diagnostics") {
+    const diagnostics = {
+      exportedAt: new Date().toISOString(),
+      connection: { status: connectionStatus, lastEventAt },
+      queuedMessages: queue.length,
+      tabs: getAllLiveState(),
+    };
+    const url = "data:application/json," + encodeURIComponent(JSON.stringify(diagnostics, null, 2));
+    chrome.downloads.download({ url, filename: `console-stream-mcp-diagnostics-${Date.now()}.json` }, () => sendResponse({ downloaded: true }));
+    return true;
+  }
+});
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "console-stream-mcp/popup") return;
+  port.onMessage.addListener((message) => {
+    if (message?.type === "subscribe" && typeof message.tabId === "number") {
+      registerPort(port, message.tabId);
+    }
+  });
 });
 
 const lastKnownUrl = new Map<number, string>();

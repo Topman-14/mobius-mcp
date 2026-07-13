@@ -1,6 +1,7 @@
 export interface TabState {
   clientId: string;
   mode: "manual" | "rule";
+  paused?: boolean;
 }
 
 function key(tabId: number): string {
@@ -18,6 +19,14 @@ export async function getTabState(tabId: number): Promise<TabState | undefined> 
 
 export async function setTabState(tabId: number, state: TabState): Promise<void> {
   await chrome.storage.session.set({ [key(tabId)]: state, [reverseKey(state.clientId)]: tabId });
+}
+
+export async function setPaused(tabId: number, paused: boolean): Promise<TabState | undefined> {
+  const state = await getTabState(tabId);
+  if (!state) return undefined;
+  const next = { ...state, paused };
+  await setTabState(tabId, next);
+  return next;
 }
 
 export async function clearTabState(tabId: number): Promise<void> {
