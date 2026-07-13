@@ -1,11 +1,18 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
+    "rootDir": ".",
     "outDir": "dist",
     "lib": ["ES2022", "DOM"],
-    "types": ["chrome"]
+    "types": ["chrome"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
   },
-  "include": ["src"],
+  "include": ["src", "injected.ts"],
   "references": [{ "path": "../../packages/capture-core" }, { "path": "../../packages/protocol" }]
 }

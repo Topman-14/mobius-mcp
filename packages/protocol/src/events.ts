@@ -35,9 +35,30 @@ export interface NetworkEvent extends EventBase {
   status?: number;
   durationMs?: number;
   error?: string;
+  requestHeaders?: Record<string, string>;
 }
 
-export type BrowserEvent = ConsoleEvent | RuntimeErrorEvent | UnhandledRejectionEvent | NetworkEvent;
+export interface NavigationEvent extends EventBase {
+  type: "navigation";
+  fromUrl?: string;
+  toUrl: string;
+}
+
+export interface DomMutationEvent extends EventBase {
+  type: "dom.mutation";
+  mutationType: "childList" | "attributes" | "characterData";
+  targetSelector?: string;
+  addedCount: number;
+  removedCount: number;
+}
+
+export type BrowserEvent =
+  | ConsoleEvent
+  | RuntimeErrorEvent
+  | UnhandledRejectionEvent
+  | NetworkEvent
+  | NavigationEvent
+  | DomMutationEvent;
 
 export type EventType = BrowserEvent["type"];
 
@@ -46,5 +67,6 @@ export interface ClientInfo {
   clientType: "extension" | "npm-client";
   pageUrl: string;
   title?: string;
+  capabilities: string[];
   connectedAt: number;
 }
