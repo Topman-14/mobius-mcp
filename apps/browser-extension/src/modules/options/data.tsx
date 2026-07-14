@@ -3,7 +3,7 @@ import { Badge } from "../../components/ui/badge.js";
 import type { ThemeSetting } from "../../hooks/use-theme.js";
 import type { CaptureOptions, PrivacyOptions } from "../../lib/capture-options.js";
 
-export const REPO_URL = "https://github.com/Topman-14/console-stream-mcp";
+export const REPO_URL = "https://github.com/Topman-14/mobius-mcp";
 
 export const COMING_SOON = (
   <Badge variant="outline" className="font-normal">
@@ -21,7 +21,7 @@ export const CAPTURE_ROWS: Array<{ key: keyof CaptureOptions; label: string; des
   { key: "console", label: "Console", description: "console.log / info / warn / error" },
   { key: "network", label: "Network", description: "fetch and XMLHttpRequest calls" },
   { key: "errors", label: "Runtime errors", description: "window.onerror and unhandled rejections" },
-  { key: "dom", label: "DOM mutations", description: "Noisy on busy pages; off by default" },
+  { key: "dom", label: "DOM mutations", description: "Can be noisy on busy pages; turn off if the feed gets flooded" },
 ];
 
 export const PRIVACY_ROWS: Array<{ key: keyof PrivacyOptions; label: string; description: string }> = [
@@ -43,6 +43,7 @@ export const ABOUT_LINKS = [
   { label: "GitHub repository", url: REPO_URL },
   { label: "Documentation", url: `${REPO_URL}#readme` },
   { label: "Report an issue", url: `${REPO_URL}/issues/new` },
+  { label: "Built with 🤍 by Tope", url: "https://findtope.dev" },
 ];
 
 export const QUICK_PATTERNS = ["localhost:*", "*.vercel.app", "*.ngrok.io", "127.0.0.1:*"];

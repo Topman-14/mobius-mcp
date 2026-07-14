@@ -1,6 +1,7 @@
 import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from "@mobius-mcp/protocol";
 import type { CapturedEvent } from "@mobius-mcp/capture-core";
-import { findMatchingRule, getRules } from "./lib/rules.js";
+import { findMatchingRule, getRules, ruleToOrigin } from "./lib/rules.js";
+import { hasOrigin } from "./lib/host-permissions.js";
 import { getTabState, setTabState, setPaused, clearTabState, getTabIdForClient, getAllTabStates, type TabState } from "./lib/tab-state.js";
 import { sendCdp, detach, findRequestId } from "./lib/cdp.js";
 import {
@@ -324,12 +325,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       send({ version: PROTOCOL_VERSION, kind: "event", clientId: state.clientId, event });
       const bucket = await recordEvent(tabId, event);
       if (bucket === "errors" && notificationsEnabled) {
-        chrome.notifications.create({
-          type: "basic",
-          iconUrl: NOTIFICATION_ICON,
-          title: "mobius-mcp",
-          message: "message" in event ? event.message : "reason" in event ? event.reason : "Runtime error captured",
-        });
+        chrome.notifications.create(
+          {
+            type: "basic",
+            iconUrl: NOTIFICATION_ICON,
+            title: "mobius-mcp",
+            message: "message" in event ? event.message : "reason" in event ? event.reason : "Runtime error captured",
+          },
+          () => {
+            if (chrome.runtime.lastError) console.error("[mobius-mcp] notification failed:", chrome.runtime.lastError.message);
+          },
+        );
       }
     });
     return;
@@ -430,6 +436,13 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   const rules = await getRules();
   const rule = findMatchingRule(details.url, rules);
   if (!rule) return;
+
+  // Rules are stored even if the user later revokes the site's permission (e.g. via
+  // chrome://extensions), so re-check here instead of assuming a saved rule is still usable.
+  if (!(await hasOrigin(ruleToOrigin(rule.pattern)))) {
+    debugLog(`rule "${rule.pattern}" matched but host permission is missing, skipping auto-enable`);
+    return;
+  }
 
   const clientId = await enableTab(details.tabId, "rule");
   if (!clientId) return;

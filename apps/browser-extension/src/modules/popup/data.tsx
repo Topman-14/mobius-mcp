@@ -2,7 +2,7 @@ import { Terminal, WarningCircle, Globe, Pulse } from "@phosphor-icons/react";
 import type { ConnectionStatus, EventCounters } from "../../hooks/use-popup-port.js";
 
 export const WS_URL = "ws://localhost:7331";
-export const REPO_URL = "https://github.com/Topman-14/console-stream-mcp";
+export const REPO_URL = "https://github.com/Topman-14/mobius-mcp";
 export const REPORT_BUG_URL = `${REPO_URL}/issues/new?template=bug_report.yml`;
 
 export const STATUS_LABEL: Record<ConnectionStatus, string> = {

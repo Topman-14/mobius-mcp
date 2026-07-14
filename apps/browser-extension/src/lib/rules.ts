@@ -32,6 +32,13 @@ export function findMatchingRule(url: string, rules: CaptureRule[]): CaptureRule
   return rules.find((rule) => matchesRule(url, rule));
 }
 
+/** Host permissions can't filter by port, so a rule's port is dropped when deriving the
+ * match pattern to request/check — matchesRule() still enforces the port at runtime. */
+export function ruleToOrigin(pattern: string): string {
+  const [hostPattern] = pattern.split(":");
+  return `*://${hostPattern}/*`;
+}
+
 const RULES_KEY = "captureRules";
 
 export async function getRules(): Promise<CaptureRule[]> {

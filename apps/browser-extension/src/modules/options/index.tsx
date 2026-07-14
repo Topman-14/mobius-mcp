@@ -3,7 +3,8 @@ import { useTheme } from "../../hooks/use-theme.js";
 import { useSyncedSetting } from "../../hooks/use-setting.js";
 import { generalSettings, performanceSettings, mcpSettings, debugSettings } from "../../lib/settings.js";
 import { captureOptionsSetting, privacyOptionsSetting, type CaptureOptions, type PrivacyOptions } from "../../lib/capture-options.js";
-import { getRules, setRules, type CaptureRule } from "../../lib/rules.js";
+import { getRules, setRules, ruleToOrigin, type CaptureRule } from "../../lib/rules.js";
+import { hasOrigin, requestOrigin } from "../../lib/host-permissions.js";
 import { SettingRow } from "../../components/ui/setting-row.js";
 import { Button } from "../../components/ui/button.js";
 import { Input } from "../../components/ui/input.js";
@@ -24,11 +25,19 @@ export function Options() {
 
   const [rules, setRulesState] = useState<CaptureRule[]>([]);
   const [pattern, setPattern] = useState("");
+  const [permissionErrors, setPermissionErrors] = useState<Record<string, boolean>>({});
+  const [grantedOrigins, setGrantedOrigins] = useState<Record<string, boolean>>({});
   const refreshRules = () => getRules().then(setRulesState);
 
   useEffect(() => {
     refreshRules();
   }, []);
+
+  useEffect(() => {
+    Promise.all(rules.map((r) => hasOrigin(ruleToOrigin(r.pattern)).then((granted) => [r.id, granted] as const))).then((entries) =>
+      setGrantedOrigins(Object.fromEntries(entries)),
+    );
+  }, [rules]);
 
   const updateCapture = (key: keyof CaptureOptions, value: boolean) => updateCaptureOptions({ [key]: value } as Partial<CaptureOptions>);
   const updatePrivacy = (key: keyof PrivacyOptions, value: boolean) => updatePrivacyOptions({ [key]: value } as Partial<PrivacyOptions>);
@@ -42,6 +51,16 @@ export function Options() {
   const addPattern = async (value: string) => {
     const trimmed = value.trim();
     if (!trimmed || rules.some((r) => r.pattern === trimmed)) return;
+    setPermissionErrors((prev) => ({ ...prev, [trimmed]: false }));
+
+    // Rules auto-enable capture without a click, so unlike the popup toggle (which rides
+    // activeTab off the icon click) this needs its own explicit, site-scoped grant.
+    const granted = await requestOrigin(ruleToOrigin(trimmed));
+    if (!granted) {
+      setPermissionErrors((prev) => ({ ...prev, [trimmed]: true }));
+      return;
+    }
+
     const rule: CaptureRule = { id: crypto.randomUUID(), pattern: trimmed };
     await setRules([...(await getRules()), rule]);
     refreshRules();
@@ -50,6 +69,11 @@ export function Options() {
   const removeRule = async (id: string) => {
     await setRules((await getRules()).filter((r) => r.id !== id));
     refreshRules();
+  };
+
+  const grantAccess = async (rule: CaptureRule) => {
+    const granted = await requestOrigin(ruleToOrigin(rule.pattern));
+    setGrantedOrigins((prev) => ({ ...prev, [rule.id]: granted }));
   };
 
   return (
@@ -72,7 +96,7 @@ export function Options() {
                 {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
                   <Button
                     key={value}
-                    variant={theme === value ? "secondary" : "outline"}
+                    variant={theme === value ? "default" : "outline"}
                     onClick={() => setTheme(value)}
                     className={cn("h-auto flex-col gap-1.5 py-2.5", theme === value && "border-primary")}
                   >
@@ -115,7 +139,8 @@ export function Options() {
             <p className="text-sm text-muted-foreground">
               Tabs matching a rule auto-enable capture on navigation, without clicking the toolbar icon. Pattern format is{" "}
               <code className="rounded bg-muted px-1 py-0.5 font-mono">hostname:port</code>, e.g. <code className="rounded bg-muted px-1 py-0.5 font-mono">localhost:5173</code> or{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono">localhost:*</code>.
+              <code className="rounded bg-muted px-1 py-0.5 font-mono">localhost:*</code>. Adding a rule prompts for permission to access that site — capture never runs on a site
+              you haven't approved.
             </p>
 
             <div className="flex flex-wrap gap-1.5">
@@ -131,13 +156,26 @@ export function Options() {
               {rules.length === 0 && <li className="px-3 py-4 text-center text-sm text-muted-foreground">No rules yet</li>}
               {rules.map((rule) => (
                 <li key={rule.id} className="flex items-center justify-between px-3 py-2">
-                  <span className="font-mono text-sm">{rule.pattern}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm">{rule.pattern}</span>
+                    {grantedOrigins[rule.id] === false && (
+                      <span className="flex items-center gap-1.5 text-xs text-destructive">
+                        Access revoked
+                        <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={() => grantAccess(rule)}>
+                          Grant access
+                        </Button>
+                      </span>
+                    )}
+                  </div>
                   <Button variant="ghost" size="icon-sm" onClick={() => removeRule(rule.id)} className="hover:text-destructive" aria-label={`Remove ${rule.pattern}`}>
                     <TrashIcon size={13} />
                   </Button>
                 </li>
               ))}
             </ul>
+            {Object.entries(permissionErrors).some(([, failed]) => failed) && (
+              <p className="text-sm text-destructive">Permission was denied, so the rule wasn't saved. Add it again and accept the browser's access prompt.</p>
+            )}
 
             <div className="flex gap-2">
               <Input
