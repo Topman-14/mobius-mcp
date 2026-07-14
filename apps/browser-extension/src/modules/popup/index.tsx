@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { GearSix, Circle, Play, Pause, Stop, Camera, Trash, ArrowSquareOut, Infinity as InfinityIcon } from "@phosphor-icons/react";
+import { GearSix, Circle, Play, Pause, Stop, Bug, Trash, ArrowSquareOut, Infinity as InfinityIcon } from "@phosphor-icons/react";
 import { useTheme } from "../../hooks/use-theme.js";
 import { usePopupPort } from "../../hooks/use-popup-port.js";
 import type { TabState } from "../../lib/tab-state.js";
 import { getRules, setRules, findMatchingRule, type CaptureRule } from "../../lib/rules.js";
+import { getRestrictedUrlReason } from "../../lib/restricted-url.js";
 import { Button } from "../../components/ui/button.js";
 import { Badge } from "../../components/ui/badge.js";
 import { Card, CardContent } from "../../components/ui/card.js";
@@ -11,7 +12,7 @@ import { ScrollArea } from "../../components/ui/scroll-area.js";
 import { Separator } from "../../components/ui/separator.js";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../components/ui/tooltip.js";
 import { cn } from "../../lib/utils.js";
-import { WS_URL, REPO_URL, STATUS_LABEL, STATUS_DOT, COUNTER_ITEMS, KIND_DOT, KIND_TEXT, KIND_LABEL } from "./data.js";
+import { WS_URL, REPO_URL, REPORT_BUG_URL, STATUS_LABEL, STATUS_DOT, COUNTER_ITEMS, KIND_DOT, KIND_TEXT, KIND_LABEL } from "./data.js";
 
 function formatElapsed(startedAt: number): string {
   const seconds = Math.floor((Date.now() - startedAt) / 1000);
@@ -106,11 +107,6 @@ export function Popup() {
     chrome.runtime.sendMessage({ type: "mobius-mcp/clear", tabId });
   };
 
-  const runLocalCommand = (command: "take_screenshot" | "capture_dom") => {
-    if (tabId === undefined) return;
-    chrome.runtime.sendMessage({ type: "mobius-mcp/local-command", tabId, command });
-  };
-
   const addCurrentHostRule = async () => {
     if (!host) return;
     const rule: CaptureRule = { id: crypto.randomUUID(), pattern: host };
@@ -130,6 +126,7 @@ export function Popup() {
   const capturing = state && !state.paused;
   const autoEnabled = tabUrl ? Boolean(findMatchingRule(tabUrl, rules)) : true;
   const mcpDown = !push || push.connection.status !== "connected";
+  const restrictedReason = getRestrictedUrlReason(tabUrl);
 
   return (
     <TooltipProvider>
@@ -235,13 +232,17 @@ export function Popup() {
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="block w-full">
-                <Button className="w-full" onClick={start} disabled={mcpDown}>
+                <Button className="w-full" onClick={start} disabled={mcpDown || Boolean(restrictedReason)}>
                   <Play size={14} weight="fill" />
                   Enable tab
                 </Button>
               </span>
             </TooltipTrigger>
-            {mcpDown && <TooltipContent>MCP server isn't running. Start it (e.g. npx mobius-mcp) and connect your agent, then try again.</TooltipContent>}
+            {restrictedReason ? (
+              <TooltipContent>{restrictedReason}</TooltipContent>
+            ) : (
+              mcpDown && <TooltipContent>MCP server isn't running. Start it (e.g. npx mobius-mcp) and connect your agent, then try again.</TooltipContent>
+            )}
           </Tooltip>
         ) : (
           <div className="grid grid-cols-2 gap-2">
@@ -266,9 +267,9 @@ export function Popup() {
         )}
         <Separator />
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" disabled={!state} onClick={() => runLocalCommand("take_screenshot")}>
-            <Camera />
-            Screenshot
+          <Button variant="outline" onClick={() => chrome.tabs.create({ url: REPORT_BUG_URL })}>
+            <Bug />
+            Report bug
           </Button>
           <Button variant="outline" onClick={() => chrome.runtime.openOptionsPage()}>
             <GearSix />
@@ -286,7 +287,7 @@ export function Popup() {
 
         {state && !state.paused ? <p className="text-center text-sm pt-2 text-muted-foreground">Your agent can now fetch this tab's runtime context via MCP.</p> : null}
 
-        {host && !autoEnabled && !ruleJustAdded && (
+        {!Boolean(restrictedReason) && host && !autoEnabled && !ruleJustAdded && (
           <Button variant="outline" onClick={addCurrentHostRule} className="h-auto justify-start border-dashed py-2 w-full">
             <span className="whitespace-normal text-left">
               Want to always capture <span className="font-mono">{host}</span>? Click here to auto-enable this host.
