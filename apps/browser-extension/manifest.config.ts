@@ -7,7 +7,7 @@ export default defineManifest({
   description:
     "Streams browser console/network events to a local mobius-mcp server for AI coding agents. Click the icon to enable capture on a tab.",
   permissions: ["scripting", "activeTab", "storage", "tabs", "webNavigation", "debugger", "notifications", "downloads"],
-  host_permissions: ["<all_urls>"],
+  optional_host_permissions: ["<all_urls>"],
   icons: {
     16: "icons/icon-16.png",
     48: "icons/icon-48.png",

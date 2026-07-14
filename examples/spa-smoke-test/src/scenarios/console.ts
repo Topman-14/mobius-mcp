@@ -62,7 +62,7 @@ export const consoleScenarios: Scenario[] = [
     description: "for testing maskEmails/maskJwts redaction options in the extension's privacy settings",
     run: () =>
       console.log(
-        "smoke test: contact user@example.com, token eyJ... (git guardian dosent even allowrandom example tokens, test this with a real JWT locally",
+        "smoke test: contact user@example.com, token eyJ... (git guardian dosent even allow random example tokens, test this with a real JWT locally",
       ),
   },
   {

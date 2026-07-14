@@ -3,7 +3,8 @@ import { GearSix, Circle, Play, Pause, Stop, Bug, Trash, ArrowSquareOut, Infinit
 import { useTheme } from "../../hooks/use-theme.js";
 import { usePopupPort } from "../../hooks/use-popup-port.js";
 import type { TabState } from "../../lib/tab-state.js";
-import { getRules, setRules, findMatchingRule, type CaptureRule } from "../../lib/rules.js";
+import { getRules, setRules, findMatchingRule, ruleToOrigin, type CaptureRule } from "../../lib/rules.js";
+import { requestOrigin } from "../../lib/host-permissions.js";
 import { getRestrictedUrlReason } from "../../lib/restricted-url.js";
 import { Button } from "../../components/ui/button.js";
 import { Badge } from "../../components/ui/badge.js";
@@ -58,6 +59,7 @@ export function Popup() {
   const [elapsed, setElapsed] = useState<string | undefined>();
   const [rules, setRulesState] = useState<CaptureRule[]>([]);
   const [ruleJustAdded, setRuleJustAdded] = useState(false);
+  const [ruleDenied, setRuleDenied] = useState(false);
 
   useEffect(() => {
     getActiveTab().then(async (tab) => {
@@ -109,6 +111,12 @@ export function Popup() {
 
   const addCurrentHostRule = async () => {
     if (!host) return;
+    setRuleDenied(false);
+    const granted = await requestOrigin(ruleToOrigin(host));
+    if (!granted) {
+      setRuleDenied(true);
+      return;
+    }
     const rule: CaptureRule = { id: crypto.randomUUID(), pattern: host };
     const next = [...(await getRules()), rule];
     await setRules(next);
@@ -241,7 +249,16 @@ export function Popup() {
             {restrictedReason ? (
               <TooltipContent>{restrictedReason}</TooltipContent>
             ) : (
-              mcpDown && <TooltipContent>MCP server isn't running. Start it (e.g. npx mobius-mcp) and connect your agent, then try again.</TooltipContent>
+              mcpDown && (
+                <TooltipContent className="max-w-56 whitespace-normal">
+                  <span>
+                    MCP server isn't running. Ask your AI agent to register it — see{" "}
+                    <a href={`${REPO_URL}#quick-start`} target="_blank" rel="noreferrer" className="underline">
+                      the quick start
+                    </a>
+                  </span>
+                </TooltipContent>
+              )
             )}
           </Tooltip>
         ) : (
@@ -294,6 +311,8 @@ export function Popup() {
             </span>
           </Button>
         )}
+
+        {ruleDenied && <p className="text-center text-xs text-destructive">Permission denied — {host} won't auto-capture. Try again if that was a mistake.</p>}
 
         {ruleJustAdded && (
           <p className="text-center text-xs text-muted-foreground">

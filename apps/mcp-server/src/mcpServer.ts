@@ -48,7 +48,7 @@ export function createMcpServer(
   debugSessions: DebugSessionManager,
 ): { server: McpServer; toolDefs: Map<string, ToolDef> } {
   const toolDefs = new Map<string, ToolDef>();
-  const server = withToolRecording(new McpServer({ name: "mobius-mcp", version: "0.0.1" }), toolDefs);
+  const server = withToolRecording(new McpServer({ name: "mobius-mcp", version: "1.0.0" }), toolDefs);
 
   let activeTabId: string | undefined;
 
@@ -486,7 +486,7 @@ export function createMcpServer(
  * touching local state — a follower never has a real store/registry/dispatcher of its own.
  */
 export function createFollowerMcpServer(toolDefs: Map<string, ToolDef>, invoke: (tool: string, args: unknown) => Promise<unknown>): McpServer {
-  const server = new McpServer({ name: "mobius-mcp", version: "0.0.1" });
+  const server = new McpServer({ name: "mobius-mcp", version: "1.0.0" });
   for (const [name, def] of toolDefs) {
     const handler = async (args: unknown) => {
       try {

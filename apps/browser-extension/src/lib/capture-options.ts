@@ -19,7 +19,7 @@ export const DEFAULT_CAPTURE_OPTIONS: CaptureOptions = {
   console: true,
   network: true,
   errors: true,
-  dom: false,
+  dom: true,
 };
 
 export const DEFAULT_PRIVACY_OPTIONS: PrivacyOptions = {
