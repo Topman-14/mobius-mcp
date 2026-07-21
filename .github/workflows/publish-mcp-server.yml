@@ -1,0 +1,41 @@
+name: Publish mobius-mcp to npm
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'The tag being published, e.g. "mobius-mcp@1.2.3" — checked against apps/mcp-server/package.json below.'
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Verify tag matches package.json version
+        run: |
+          TAG_VERSION="${{ inputs.tag }}"
+          TAG_VERSION="${TAG_VERSION#mobius-mcp@}"
+          PKG_VERSION=$(node -p "require('./apps/mcp-server/package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Tag version ($TAG_VERSION) does not match apps/mcp-server/package.json version ($PKG_VERSION)." >&2
+            exit 1
+          fi
+
+      - run: npm publish --workspace=apps/mcp-server --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

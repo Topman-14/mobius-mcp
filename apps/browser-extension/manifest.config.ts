@@ -3,7 +3,7 @@ import { defineManifest } from "@crxjs/vite-plugin";
 export default defineManifest({
   manifest_version: 3,
   name: "Mobius",
-  version: "0.0.1",
+  version: "1.0.1",
   description:
     "Streams browser console/network events to a local mobius-mcp server for AI coding agents. Click the icon to enable capture on a tab.",
   permissions: ["scripting", "activeTab", "storage", "tabs", "webNavigation", "debugger", "notifications", "downloads"],
