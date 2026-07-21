@@ -1,0 +1,61 @@
+name: Tag mobius-mcp release
+
+# Bump the version in apps/mcp-server/package.json as part of your PR (a normal,
+# reviewable file diff — not a git tag pushed ahead of merge, which breaks under a
+# squash merge or a rebase during review). Once that lands on main, this creates the
+# "mobius-mcp@X.Y.Z" tag and publishes — no manual `git tag`/`git push --tags` step.
+on:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "apps/mcp-server/package.json"
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      created: ${{ steps.resolve.outputs.created }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Idempotent: a push to main touching this file doesn't always mean the version
+      # actually changed (e.g. a revert, or two PRs landing back to back where the
+      # second didn't bump it). If the tag already exists, there's nothing to do.
+      - name: Tag if the version changed
+        id: resolve
+        run: |
+          VERSION=$(node -p "require('./apps/mcp-server/package.json').version")
+          TAG="mobius-mcp@$VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists — nothing to do."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "$TAG"
+            git push origin "$TAG"
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: tag
+    if: needs.tag.outputs.created == 'true'
+    uses: ./.github/workflows/publish-mcp-server.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write
