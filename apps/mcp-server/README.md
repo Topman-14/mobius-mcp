@@ -1,15 +1,25 @@
 # mobius-mcp
 
-MCP server that maintains a live, in-memory stream of browser runtime events — console logs, errors, network requests, and navigation — and exposes them to AI coding agents (Claude Code, Codex CLI, Gemini CLI, etc.) as MCP tools.
+MCP server that maintains a live stream of browser runtime events — console logs, errors, network requests, and navigation — and exposes them to AI coding agents (Claude Code, Codex CLI, Gemini CLI, etc.) as MCP tools. Recent history is in-memory for fast reads, mirrored to disk so it survives a server restart (see [Configuration](#configuration)).
 
 Local-first: everything runs on `localhost`, no cloud services, no telemetry, no external APIs.
 
-Pair it with one of two browser-side clients:
+Pair it with a browser-side client:
 
 - **[Mobius browser extension](https://github.com/Topman-14/mobius-mcp/tree/main/apps/browser-extension)** — Chromium extension, adds browser control, screenshots, DOM/accessibility snapshots, CPU/memory profiling, and `evaluate_js` on top of event streaming (via `chrome.debugger`/CDP). Interactive: you can click around and trigger events yourself while the agent inspects them, instead of the agent driving headless automation blind.
-- **[`mobius-client`](https://www.npmjs.com/package/mobius-client)** — drop-in npm package for direct app integration, no extension required. Streams console/error/network/navigation events only.
+- **[`mobius-client`](https://www.npmjs.com/package/mobius-client)** — drop-in npm package for direct app integration, no extension required, streams console/error/network/navigation events only. **Development is currently paused** (see the [root ROADMAP.md](https://github.com/Topman-14/mobius-mcp/blob/main/ROADMAP.md) for why) — the extension is the recommended client.
 
 Source: https://github.com/Topman-14/mobius-mcp
+
+## Table of contents
+
+- [Install](#install)
+- [Usage](#usage)
+- [How it works](#how-it-works)
+- [Configuration](#configuration)
+- [MCP tools](#mcp-tools)
+- [Client capabilities](#client-capabilities)
+- [License](#license)
 
 ## Install
 
@@ -40,17 +50,7 @@ Or add it directly to your MCP client's config — Claude Code, Codex CLI, Gemin
 }
 ```
 
-Then stream your app's runtime into it — either load the [browser extension](https://github.com/Topman-14/mobius-mcp/tree/main/apps/browser-extension) and click "Enable tab" on the page you're debugging, or install the npm client into your app:
-
-```bash
-npm install mobius-client
-```
-
-```ts
-import { startMobiusStream } from "mobius-client";
-
-startMobiusStream();
-```
+Then load the [browser extension](https://github.com/Topman-14/mobius-mcp/tree/main/apps/browser-extension) and click "Enable tab" on the page you're debugging — capture is opt-in per tab, nothing streams by default.
 
 Once a browser tab is connected, ask your agent to check its console, errors, network activity, or DOM — no copy-pasting logs into chat.
 
@@ -59,7 +59,7 @@ Once a browser tab is connected, ask your agent to check its console, errors, ne
 ```
 Web App
   │
-Extension OR npm client
+Browser extension
   │
 WebSocket
   │
@@ -70,7 +70,19 @@ MCP (stdio)
 Your AI agent
 ```
 
-The browser client captures `console.*`, uncaught errors, unhandled promise rejections, `fetch`/`XHR` calls, and navigation (including SPA route changes via `pushState`/`replaceState`/hash), and streams them over a WebSocket to this server. The server keeps a rolling in-memory history per tab and exposes it to the connected MCP client as tools.
+The browser client captures `console.*`, uncaught errors, unhandled promise rejections, `fetch`/`XHR` calls, and navigation (including SPA route changes via `pushState`/`replaceState`/hash), and streams them over a WebSocket to this server. The server keeps a rolling history per tab — in-memory for fast reads, mirrored to disk in the background so a crash or restart doesn't lose it (see [Configuration](#configuration)) — and exposes it to the connected MCP client as tools.
+
+## Configuration
+
+Set these as environment variables in your MCP client's server config (the `env` block shown in [Usage](#usage) above):
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CONSOLE_STREAM_PORT` | `7331` | WebSocket port the browser client connects to |
+| `CONSOLE_STREAM_MAX_EVENTS_PER_TAB` | `3000` | Event history cap per tab, both in-memory and on disk |
+| `CONSOLE_STREAM_PURGE_DELAY_MS` | `300000` (5 min) | Grace period after a tab disconnects before its buffer is purged (survives a quick page refresh) |
+| `CONSOLE_STREAM_PERSISTENCE_DIR` | `<os temp dir>/mobius-mcp/events` | Where per-tab event history is persisted to disk |
+| `CONSOLE_STREAM_PERSISTENCE_TTL_MS` | `3600000` (1 hour) | How long persisted events are kept before being pruned from disk (pruned on an interval, roughly a quarter of the TTL) |
 
 ## MCP tools
 
@@ -100,10 +112,10 @@ The browser client captures `console.*`, uncaught errors, unhandled promise reje
 - `take_screenshot`, `capture_full_page`, `capture_element`
 - `capture_dom`, `capture_accessibility_tree`
 
-**Code execution & network detail** (extension only, requires CDP)
-- `evaluate_js` — run arbitrary JavaScript in the tab and get the result; fully open, no read-only enforcement — it's the developer's own browser and app
-- `get_response_body` — fetch a captured request's response body
-- `export_har` — export captured network requests as a HAR 1.2 file (works from either client, never includes bodies)
+**Code execution & network detail**
+- `evaluate_js` — run arbitrary JavaScript in the tab and get the result; extension only, requires CDP, fully open, no read-only enforcement — it's the developer's own browser and app
+- `get_response_body`, `get_request_body` — extension only, requires CDP; fallback for the rare body `get_network_requests` couldn't capture (binary, oversized, non-text content-type)
+- `export_har` — export captured network requests as a HAR 1.2 file with full request/response bodies; a body capture missed inline is re-fetched over CDP when the extension is connected (binary bodies come back base64-encoded)
 
 **Profiling** (extension only, requires CDP, job-based — see `get_job_status`/`get_job_result`/`cancel_job`)
 - `start_cpu_profile`, `start_memory_profile`
@@ -112,7 +124,7 @@ CDP-backed tools make Chrome show a persistent "being debugged" banner on the ta
 
 ## Client capabilities
 
-| Capability | Browser extension | npm client (`mobius-client`) |
+| Capability | Browser extension | npm client (`mobius-client`, paused) |
 | --- | --- | --- |
 | Console/error/network/navigation streaming | ✅ | ✅ |
 | Multi-tab awareness | ✅ | ✅ (one entry per app instance) |
@@ -120,7 +132,8 @@ CDP-backed tools make Chrome show a persistent "being debugged" banner on the ta
 | Debug sessions | ✅ | ✅ (no DOM mutations) |
 | Screenshots, DOM/accessibility snapshots | ✅ | ❌ |
 | CPU/memory profiling | ✅ | ❌ |
-| `evaluate_js`, response bodies | ✅ | ❌ |
+| `evaluate_js`, `get_request_body`/`get_response_body` | ✅ | ❌ |
+| Full-body HAR export (`export_har`) | ✅ (CDP fallback for missed bodies) | ✅ (inline-captured bodies only) |
 
 ## License
 

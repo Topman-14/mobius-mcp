@@ -188,7 +188,14 @@ export function Popup() {
                 <div key={key} className="flex flex-col items-center gap-1 bg-card px-1 py-2.5">
                   <Icon size={14} className={tone} />
                   {paused ? (
-                    <span className="text-sm font-semibold text-destructive">Paused</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-xs font-semibold text-destructive">Paused</span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-56 whitespace-normal">
+                        {label} capture is disabled in Options
+                      </TooltipContent>
+                    </Tooltip>
                   ) : (
                     <span className="font-mono text-sm font-semibold tabular-nums">{counters[key]}</span>
                   )}
@@ -210,7 +217,7 @@ export function Popup() {
             </div>
             <div className="shrink-0 text-right text-xs">
               {status === "connected" ? (
-                <span className="text-success">{push?.connection.lastEventAt ? formatAgo(push.connection.lastEventAt) : "connected"}</span>
+                <span className="text-success">{push?.connection.lastEventAt ? formatAgo(push.connection.lastEventAt) : "Running"}</span>
               ) : status === "connecting" ? (
                 <span className="text-warning">connecting…</span>
               ) : (
@@ -221,8 +228,8 @@ export function Popup() {
         </Card>
       </div>
 
-      {/* live feed — hidden until the MCP server is actually running, nothing to show yet */}
-      {!mcpDown && (
+      {/* live feed — hidden until the MCP server is running and this tab is enabled, nothing to show yet */}
+      {!mcpDown && state && (
         <>
           {feed.length === 0 ? (
             <div className="px-3 py-6 text-center text-xs text-muted-foreground">No events yet</div>

@@ -1,9 +1,4 @@
-export interface RedactionOptions {
-  redactedHeaderNames: string[];
-  maskEmails: boolean;
-  maskJwts: boolean;
-  redactSensitiveBodyFields: boolean;
-}
+import type { RedactionOptions } from "../types.ts";
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 const JWT_RE = /\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
@@ -16,7 +11,6 @@ function maskText(value: string, options: RedactionOptions): string {
   return result;
 }
 
-/** Applied to a captured event's already-serialized text fields right before emit — never adds new fields. */
 export function redactText(value: string, options: RedactionOptions): string {
   return maskText(value, options);
 }
@@ -38,9 +32,6 @@ function maskJsonValue(value: unknown): unknown {
   return value;
 }
 
-/** Applied to a captured request/response body right before emit. JSON bodies get
- * key-based masking of sensitive fields (password, token, apiKey, ...); everything
- * else just gets the same email/JWT masking as other captured text. */
 export function redactBodyText(value: string, contentType: string | undefined, options: RedactionOptions): string {
   const masked = maskText(value, options);
   if (!options.redactSensitiveBodyFields) return masked;

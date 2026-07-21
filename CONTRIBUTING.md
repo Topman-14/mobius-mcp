@@ -4,21 +4,14 @@ Thanks for your interest in improving mobius-mcp.
 
 ## Setup
 
-```bash
-npm install
-npm run build
-npm run test
-```
+Local setup (clone, install, build, watch mode) lives in [README.md § Contributing](./README.md#contributing) — this file covers guidelines and PR expectations, not the setup steps themselves, so there's one place to keep those current.
 
 This is an npm workspaces monorepo:
 
 * `apps/mcp-server` — the MCP server
 * `apps/browser-extension` — Chromium extension client
-* `apps/npm-client` — `mobius-client` npm package
-* `packages/protocol` — shared event/message schema
-* `packages/capture-core` — shared runtime hook patching (console, errors, network)
-
-For active development, `npm run watch` runs incremental watchers for the shared packages and the extension together (with automatic reload in Chrome) — see [README.md](./README.md#watch-mode) for details.
+* `apps/npm-client` — `mobius-client` npm package (development paused — see [ROADMAP.md](./ROADMAP.md))
+* `packages/capture-core` — shared event/message schema and runtime hook patching (console, errors, network)
 
 ## Guidelines
 
