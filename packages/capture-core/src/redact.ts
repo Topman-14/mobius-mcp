@@ -16,7 +16,6 @@ function maskText(value: string, options: RedactionOptions): string {
   return result;
 }
 
-/** Applied to a captured event's already-serialized text fields right before emit — never adds new fields. */
 export function redactText(value: string, options: RedactionOptions): string {
   return maskText(value, options);
 }
@@ -38,9 +37,6 @@ function maskJsonValue(value: unknown): unknown {
   return value;
 }
 
-/** Applied to a captured request/response body right before emit. JSON bodies get
- * key-based masking of sensitive fields (password, token, apiKey, ...); everything
- * else just gets the same email/JWT masking as other captured text. */
 export function redactBodyText(value: string, contentType: string | undefined, options: RedactionOptions): string {
   const masked = maskText(value, options);
   if (!options.redactSensitiveBodyFields) return masked;
