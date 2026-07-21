@@ -26,6 +26,7 @@ Local-first. No cloud services, no telemetry, no external APIs.
 - [Skills](#skills)
 - [Design principles](#design-principles)
 - [Roadmap](#roadmap)
+- [Smoke-test app](#smoke-test-app)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -197,6 +198,18 @@ See [Roadmap](#roadmap) for what "planned" maps to by stage.
 ## Roadmap
 
 Staged build history and planned future work — including why the npm client is paused, and what's left for framework introspection (React/Redux/Zustand state, storage inspection) — live in [ROADMAP.md](./ROADMAP.md).
+
+## Smoke-test app
+
+`examples/spa-smoke-test` is a small React + `react-router-dom` SPA built to exercise every capture path at once in one place, rather than hunting for a real app that happens to trigger all of them: a range of `console.log`/`info`/`warn`/`error` payload shapes (objects, arrays, circular refs, BigInt, long strings, PII-shaped strings for redaction), multiple ways to trigger uncaught errors and unhandled promise rejections, `fetch`/XHR requests covering 200/404/500/slow/network-failure/POST, route/param/search-param changes, and DOM mutations. Useful for smoke-testing changes to this repo, or just seeing what mobius-mcp captures before wiring it into a real app. Requires a clone (not part of the published npm package) — see [Contributing](#contributing) below for setup.
+
+```bash
+cd examples/spa-smoke-test
+npm install
+npm run dev
+```
+
+Open the served URL, enable capture on the tab via the browser extension, click through `/scenarios`, then ask your agent to inspect the results via the [MCP tools](#mcp-tools) above — try `get_capture_settings` first, to rule out "that category is off" before assuming a missing event is a bug. Scenarios are extensible: see [examples/README.md](./examples/README.md) for the full list and how to add new ones.
 
 ## Contributing
 
