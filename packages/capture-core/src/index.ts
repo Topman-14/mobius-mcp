@@ -7,8 +7,11 @@ export type {
   ClientMessage,
   ControlMessage,
   EventType,
+  PageSnapshot,
   RedactionOptions,
   ServerMessage,
+  SnapshotBox,
+  SnapshotElement,
 } from "./types.ts";
 export { PROTOCOL_VERSION } from "./data.ts";
 export {

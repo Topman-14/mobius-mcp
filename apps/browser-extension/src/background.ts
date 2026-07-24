@@ -1,8 +1,9 @@
-import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage, type CapturedEvent } from "@mobius-mcp/capture-core";
+import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage, type CapturedEvent, type PageSnapshot } from "@mobius-mcp/capture-core";
 import { findMatchingRule, getRules, ruleToOrigin } from "./lib/rules.js";
 import { hasOrigin } from "./lib/host-permissions.js";
 import { getTabState, setTabState, setPaused, clearTabState, getTabIdForClient, getAllTabStates, type TabState } from "./lib/tab-state.js";
 import { sendCdp, detach, findRequestId } from "./lib/cdp.js";
+import { CURSOR_MOVE_MS } from "../overlay/data.js";
 import {
   setConnectionStatus,
   recordEvent,
@@ -103,6 +104,20 @@ async function captureDomTab(tabId: number): Promise<{ html: string }> {
   return { html: result.result.value };
 }
 
+// Resolves ref|selector in-page (window.__mobiusActions, apps/browser-extension/actions/),
+// which also moves the cursor overlay there and logs it to the HUD — the actual trusted
+// mouse event is dispatched separately, over CDP, by the caller.
+async function prepareActionTarget(tabId: number, target: { ref?: string; selector?: string }, verb: string): Promise<{ x: number; y: number }> {
+  const result = (await sendCdp(tabId, "Runtime.evaluate", {
+    expression: `window.__mobiusActions.prepareTarget(${JSON.stringify(target)}, ${JSON.stringify(verb)})`,
+    returnByValue: true,
+  })) as { result: { value?: { x: number; y: number } }; exceptionDetails?: { text: string } };
+  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+  if (!result.result.value) throw new Error(`${verb}: page script did not return a target`);
+  await new Promise((resolve) => setTimeout(resolve, CURSOR_MOVE_MS));
+  return result.result.value;
+}
+
 async function runCommand(message: ServerMessage): Promise<unknown> {
   if (message.command === "list_tabs") {
     const tabs = await chrome.tabs.query({});
@@ -173,8 +188,31 @@ async function runCommand(message: ServerMessage): Promise<unknown> {
     }
     case "capture_dom":
       return captureDomTab(tabId);
+    case "snapshot_page": {
+      const result = (await sendCdp(tabId, "Runtime.evaluate", {
+        expression: "window.__mobiusSnapshot.capture()",
+        returnByValue: true,
+      })) as { result: { value?: PageSnapshot }; exceptionDetails?: { text: string } };
+      if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+      if (!result.result.value) throw new Error("snapshot_page: page script did not return a snapshot (was the tab reloaded after capture was enabled?)");
+      return result.result.value;
+    }
     case "capture_accessibility_tree": {
       return sendCdp(tabId, "Accessibility.getFullAXTree");
+    }
+    case "click": {
+      const { ref, selector, button = "left", clickCount = 1 } = message.params as { ref?: string; selector?: string; button?: "left" | "right" | "middle"; clickCount?: number };
+      const { x, y } = await prepareActionTarget(tabId, { ref, selector }, "clicking");
+      await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+      await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", x, y, button, clickCount });
+      await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount });
+      return { clicked: true };
+    }
+    case "hover": {
+      const { ref, selector } = message.params as { ref?: string; selector?: string };
+      const { x, y } = await prepareActionTarget(tabId, { ref, selector }, "hovering over");
+      await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+      return { hovered: true };
     }
     case "evaluate_js": {
       const { expression } = message.params as { expression: string };

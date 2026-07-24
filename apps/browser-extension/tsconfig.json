@@ -13,6 +13,6 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src", "injected.ts"],
+  "include": ["src", "injected.ts", "overlay", "snapshot", "actions"],
   "references": [{ "path": "../../packages/capture-core" }]
 }

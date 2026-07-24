@@ -240,13 +240,52 @@ export function createMcpServer(
   );
 
   server.tool(
+    "snapshot_page",
+    "Get a pruned, indexed tree of the elements on a tab that matter for driving it — interactive, labelled, or text-bearing elements only, each with a `ref`, role, accessible name, and bounding box. This is how to find something to click/hover/type into; use it instead of capture_dom when the question is \"what's on this page and how do I act on it\". `ref`s are scoped to this snapshot's `snapshotId` and go stale the moment the page changes — call this again after any action, don't reuse refs from an earlier snapshot. Requires the browser extension.",
+    { tabId: z.string().optional() },
+    async ({ tabId }) => {
+      const resolved = resolveCdpTab(registry, activeTabId, tabId);
+      if ("error" in resolved) return resolved.error;
+      return runCommand(dispatcher, resolved.clientId, "snapshot_page");
+    },
+  );
+
+  server.tool(
     "capture_dom",
-    "Get the tab's current DOM as HTML (document.documentElement.outerHTML). Requires the browser extension.",
+    "Get the tab's current DOM as raw HTML (document.documentElement.outerHTML) — the whole document, unpruned, with no refs to act on. For finding something to click/hover/type into, use snapshot_page instead; reach for this only for raw-markup questions (diffing exact markup, checking a server-rendered payload). Can be large on a real app. Requires the browser extension.",
     { tabId: z.string().optional() },
     async ({ tabId }) => {
       const resolved = resolveCdpTab(registry, activeTabId, tabId);
       if ("error" in resolved) return resolved.error;
       return runCommand(dispatcher, resolved.clientId, "capture_dom");
+    },
+  );
+
+  server.tool(
+    "click",
+    "Click an element via a real trusted mouse event (CDP Input.dispatchMouseEvent, not element.click()) — covers double/triple/right-click via clickCount/button rather than separate tools. Address the element with `ref` from a recent snapshot_page call, or a CSS `selector`. Moves the on-page cursor overlay and logs to its HUD before dispatching, so the action is visible while it happens. Requires the browser extension.",
+    {
+      tabId: z.string().optional(),
+      ref: z.string().optional(),
+      selector: z.string().optional(),
+      button: z.enum(["left", "right", "middle"]).default("left"),
+      clickCount: z.number().int().positive().max(3).default(1),
+    },
+    async ({ tabId, ref, selector, button, clickCount }) => {
+      const resolved = resolveCdpTab(registry, activeTabId, tabId);
+      if ("error" in resolved) return resolved.error;
+      return runCommand(dispatcher, resolved.clientId, "click", { ref, selector, button, clickCount });
+    },
+  );
+
+  server.tool(
+    "hover",
+    "Move the mouse over an element via a real trusted mouse event, without clicking. Address with `ref` (from snapshot_page) or a CSS `selector`. Moves the on-page cursor overlay and logs to its HUD before dispatching. Requires the browser extension.",
+    { tabId: z.string().optional(), ref: z.string().optional(), selector: z.string().optional() },
+    async ({ tabId, ref, selector }) => {
+      const resolved = resolveCdpTab(registry, activeTabId, tabId);
+      if ("error" in resolved) return resolved.error;
+      return runCommand(dispatcher, resolved.clientId, "hover", { ref, selector });
     },
   );
 
