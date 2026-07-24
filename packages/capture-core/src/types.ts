@@ -103,7 +103,7 @@ export interface ClientInfo {
 
 // Wire protocol — the message envelope exchanged over the WebSocket between a
 // browser client and the server, plus the version gate on that envelope's shape.
-export type ProtocolVersion = 1;
+export type ProtocolVersion = 2;
 
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 // A BrowserEvent as the client sends it: id/seq/clientId aren't known yet — the
@@ -172,4 +172,31 @@ export interface BodyCapture {
   body?: string;
   truncated?: boolean;
   omittedReason?: string;
+}
+
+// Page snapshot — Stage H (ROADMAP.md). The result of `snapshot_page`: a pruned, indexed
+// tree of the elements an agent can act on, built in-page by apps/browser-extension/snapshot/
+// and returned over CDP Runtime.evaluate. `ref` is scoped to `snapshotId` — it is not durable
+// across a re-render or a later `snapshot_page` call.
+export interface SnapshotBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface SnapshotElement {
+  ref: string;
+  role: string;
+  name: string;
+  tag: string;
+  box: SnapshotBox;
+  children?: SnapshotElement[];
+}
+
+export interface PageSnapshot {
+  snapshotId: string;
+  url: string;
+  title: string;
+  elements: SnapshotElement[];
 }
