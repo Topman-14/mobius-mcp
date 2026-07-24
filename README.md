@@ -23,6 +23,7 @@ Local-first. No cloud services, no telemetry, no external APIs.
 - [Enabling capture (extension)](#enabling-capture-extension)
 - [MCP tools](#mcp-tools)
 - [Troubleshooting](#troubleshooting)
+- [Known limitations](#known-limitations)
 - [Client capabilities](#client-capabilities)
 - [Skills](#skills)
 - [Design principles](#design-principles)
@@ -168,6 +169,11 @@ npx mobius-mcp --health
 ```
 
 Prints the same diagnostic payload as JSON and exits `0` if `state` is `"ready"`, `1` otherwise. This talks to whichever mobius-mcp process is already bound to the configured port (`CONSOLE_STREAM_PORT`, default `7331`) — it doesn't start a new server, so run it while your MCP client (and therefore its spawned `mobius-mcp` process) is active.
+
+## Known limitations
+
+- **Testing coverage.** It works reliably across the setups it's been developed and dogfooded on, but hasn't yet been exercised across the full range of OSes, Chrome versions, and MCP clients in the wild — treat it as early-stage software, and please report anything unexpected.
+- **Extension/server version skew.** Chrome Web Store review can take some time to approve a new extension release, so an older extension build can still be running against a newer `mobius-mcp` server for a while after a protocol-breaking change ships. `mobius_diagnose`'s `handshake_rejected` state (see [Troubleshooting](#troubleshooting)) is the symptom to watch for — a fix to smooth over this gap is in progress.
 
 ## Client capabilities
 
