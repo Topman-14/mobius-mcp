@@ -14,7 +14,6 @@ export interface ConsoleEvent extends EventBase {
   // Set only if the server's own store cap cut this further — the original value
   // isn't recoverable afterward (unlike a network body, there's no fallback fetch).
   messageTruncated?: boolean;
-  args?: unknown[];
 }
 
 export interface RuntimeErrorEvent extends EventBase {
@@ -67,6 +66,8 @@ export interface DomMutationEvent extends EventBase {
   targetSelector?: string;
   addedCount: number;
   removedCount: number;
+  /** How many raw MutationRecords were coalesced into this one event. */
+  recordCount?: number;
 }
 
 // Every event a client can emit, discriminated by `type`.
@@ -103,7 +104,7 @@ export interface ClientInfo {
 
 // Wire protocol — the message envelope exchanged over the WebSocket between a
 // browser client and the server, plus the version gate on that envelope's shape.
-export type ProtocolVersion = 1;
+export type ProtocolVersion = 2;
 
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 // A BrowserEvent as the client sends it: id/seq/clientId aren't known yet — the
@@ -172,4 +173,28 @@ export interface BodyCapture {
   body?: string;
   truncated?: boolean;
   omittedReason?: string;
+}
+
+// `snapshot_page` result: a pruned element tree. `ref` is scoped to `snapshotId`, not durable across re-renders.
+export interface SnapshotBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface SnapshotElement {
+  ref: string;
+  role: string;
+  name: string;
+  tag: string;
+  box: SnapshotBox;
+  children?: SnapshotElement[];
+}
+
+export interface PageSnapshot {
+  snapshotId: string;
+  url: string;
+  title: string;
+  elements: SnapshotElement[];
 }

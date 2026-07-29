@@ -12,8 +12,44 @@ export interface EventSink {
   clear(clientId: string): void;
 }
 
+// services/diagnostics.ts
+export type DiagnoseState =
+  | "ready"
+  | "no_client_ever_connected"
+  | "client_disconnected"
+  | "handshake_rejected"
+  | "ws_bind_failed"
+  // Only reachable via DiagnosticsService.checkExternal (the `--health` CLI probe), which
+  // runs in a process that never bound the port itself.
+  | "no_server_running"
+  | "error";
+
+export interface RemediationStep {
+  step: string;
+  userAction: boolean;
+}
+
+export interface DiagnosePayload {
+  state: DiagnoseState;
+  wsPort: number;
+  wsListening: boolean;
+  serverVersion: string;
+  protocolVersion: number;
+  clients: ClientInfo[];
+  everConnected: boolean;
+  lastClientSeenAt: number | null;
+  lastDisconnectReason: string | null;
+  rejectedHandshakes: number;
+  remediation: RemediationStep[];
+  agentGuidance: string;
+  /** Set only for state "error". */
+  error?: string;
+}
+
 // commandDispatcher.ts
 export interface PendingCommand {
+  clientId: string;
+  command: string;
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
@@ -49,16 +85,13 @@ export interface ToolDef {
   handler: (args: any) => Promise<any>;
 }
 
-// The MCP SDK's tool-result content shape — every tool handler returns this. The index
-// signature mirrors the SDK's own result type (CallToolResult carries other optional
-// fields like _meta) — without it, TS's index-signature assignability rule rejects this
-// named type at every server.tool() call site even though the fields it does have match.
-export interface ToolTextContent {
+// Index signature required so TS accepts this as CallToolResult at every server.tool() call site.
+export interface ToolContent {
   [key: string]: unknown;
-  content: Array<{ type: "text"; text: string }>;
+  content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
   isError?: true;
 }
 
 // Return shape shared by resolveTabId/resolveCdpTab (utils/tools.ts): the resolved
 // tab's clientId, or a ready-to-return tool error when resolution failed.
-export type TabResolution = { clientId: string } | { error: ToolTextContent };
+export type TabResolution = { clientId: string } | { error: ToolContent };

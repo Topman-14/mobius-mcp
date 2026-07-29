@@ -1,8 +1,8 @@
-import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage, type CapturedEvent } from "@mobius-mcp/capture-core";
-import { findMatchingRule, getRules, ruleToOrigin } from "./lib/rules.js";
-import { hasOrigin } from "./lib/host-permissions.js";
+import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage, type CapturedEvent, type PageSnapshot } from "@mobius-mcp/capture-core";
+import { findMatchingRule, getRules } from "./lib/rules.js";
 import { getTabState, setTabState, setPaused, clearTabState, getTabIdForClient, getAllTabStates, type TabState } from "./lib/tab-state.js";
 import { sendCdp, detach, findRequestId } from "./lib/cdp.js";
+import { CURSOR_MOVE_MS } from "../overlay/data.js";
 import {
   setConnectionStatus,
   recordEvent,
@@ -21,6 +21,8 @@ import {
 import { mcpSettings, performanceSettings, generalSettings, debugSettings } from "./lib/settings.js";
 import { captureOptionsSetting } from "./lib/capture-options.js";
 
+const BROWSER_CONTROL_CLIENT_ID = crypto.randomUUID();
+
 let ws: WebSocket | null = null;
 let retryDelay = 500;
 let maxQueueSize = 500;
@@ -28,9 +30,6 @@ let verboseLogs = false;
 let notificationsEnabled = false;
 const queue: ClientMessage[] = [];
 
-// chrome.notifications.create doesn't accept SVG data URIs for iconUrl (raster only) —
-// using one previously failed silently on every call ("Unable to download all specified
-// images"), so this points at a bundled PNG instead.
 const NOTIFICATION_ICON = chrome.runtime.getURL("icons/icon-48.png");
 
 function debugLog(...args: unknown[]) {
@@ -49,19 +48,34 @@ function send(message: ClientMessage) {
 async function connect() {
   const mcp = await mcpSettings.get();
   setConnectionStatus("connecting");
-  ws = new WebSocket(`ws://localhost:${mcp.port}`);
+  ws = new WebSocket(`ws://127.0.0.1:${mcp.port}`);
 
   ws.addEventListener("open", () => {
     retryDelay = mcp.reconnectBaseDelayMs;
     setConnectionStatus("connected");
-    console.log(`[mobius-mcp] connected to mcp server on ws://localhost:${mcp.port}`);
+    console.log(`[mobius-mcp] connected to mcp server on ws://127.0.0.1:${mcp.port}`);
     while (queue.length > 0) {
       ws!.send(JSON.stringify(queue.shift()!));
     }
+    send({
+      version: PROTOCOL_VERSION,
+      kind: "hello",
+      client: {
+        clientId: BROWSER_CONTROL_CLIENT_ID,
+        clientType: "extension",
+        pageUrl: "",
+        title: "mobius-mcp browser control",
+        capabilities: ["browser-control"],
+      },
+    });
   });
 
-  ws.addEventListener("close", () => {
+  ws.addEventListener("close", (event) => {
     setConnectionStatus("disconnected");
+    if (event.code === 4000) {
+      console.error(`[mobius-mcp] server rejected our protocol version (${event.reason}) — update the extension and/or the mobius-mcp server, then reload the extension.`);
+      return;
+    }
     console.warn(`[mobius-mcp] disconnected from mcp server (ws://localhost:${mcp.port}), retrying in ${retryDelay}ms`);
     setTimeout(connect, retryDelay);
     retryDelay = Math.min(retryDelay * 2, 10_000);
@@ -103,10 +117,40 @@ async function captureDomTab(tabId: number): Promise<{ html: string }> {
   return { html: result.result.value };
 }
 
+async function prepareActionTarget(tabId: number, target: { ref?: string; selector?: string }, verb: string): Promise<{ x: number; y: number }> {
+  const result = (await sendCdp(tabId, "Runtime.evaluate", {
+    expression: `window.__mobiusActions.prepareTarget(${JSON.stringify(target)}, ${JSON.stringify(verb)})`,
+    returnByValue: true,
+  })) as { result: { value?: { x: number; y: number } }; exceptionDetails?: { text: string } };
+  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+  if (!result.result.value) throw new Error(`${verb}: page script did not return a target`);
+  await new Promise((resolve) => setTimeout(resolve, CURSOR_MOVE_MS));
+  return result.result.value;
+}
+
 async function runCommand(message: ServerMessage): Promise<unknown> {
   if (message.command === "list_tabs") {
     const tabs = await chrome.tabs.query({});
     return tabs.map((t) => ({ tabId: t.id, url: t.url, title: t.title, active: t.active }));
+  }
+
+  if (message.command === "open_tab") {
+    const { url } = message.params as { url?: string };
+    const tab = await chrome.tabs.create({ url, active: true });
+    if (tab.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true });
+    return { chromeTabId: tab.id };
+  }
+
+  if (message.command === "enable_capture") {
+    const { chromeTabId } = message.params as { chromeTabId: number };
+    const tab = await chrome.tabs.get(chromeTabId);
+    if (!tab.url) throw new Error(`Tab ${chromeTabId} has no URL yet (still loading?) — retry shortly.`);
+    await chrome.tabs.update(chromeTabId, { active: true });
+    if (tab.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true });
+
+    const clientId = await enableTab(chromeTabId, "manual");
+    if (!clientId) throw new Error(`Failed to enable capture on tab ${chromeTabId}.`);
+    return { clientId, tabId: clientId };
   }
 
   const tabId = await getTabIdForClient(message.clientId);
@@ -173,8 +217,31 @@ async function runCommand(message: ServerMessage): Promise<unknown> {
     }
     case "capture_dom":
       return captureDomTab(tabId);
+    case "snapshot_page": {
+      const result = (await sendCdp(tabId, "Runtime.evaluate", {
+        expression: "window.__mobiusSnapshot.capture()",
+        returnByValue: true,
+      })) as { result: { value?: PageSnapshot }; exceptionDetails?: { text: string } };
+      if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+      if (!result.result.value) throw new Error("snapshot_page: page script did not return a snapshot (was the tab reloaded after capture was enabled?)");
+      return result.result.value;
+    }
     case "capture_accessibility_tree": {
       return sendCdp(tabId, "Accessibility.getFullAXTree");
+    }
+    case "click": {
+      const { ref, selector, button = "left", clickCount = 1 } = message.params as { ref?: string; selector?: string; button?: "left" | "right" | "middle"; clickCount?: number };
+      const { x, y } = await prepareActionTarget(tabId, { ref, selector }, "clicking");
+      await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+      await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", x, y, button, clickCount });
+      await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount });
+      return { clicked: true };
+    }
+    case "hover": {
+      const { ref, selector } = message.params as { ref?: string; selector?: string };
+      const { x, y } = await prepareActionTarget(tabId, { ref, selector }, "hovering over");
+      await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+      return { hovered: true };
     }
     case "evaluate_js": {
       const { expression } = message.params as { expression: string };
@@ -244,11 +311,13 @@ let settingsReady = bootSettings();
 connect();
 resumeCaptureAfterReload();
 
-// tabState (chrome.storage.session) survives a background-service-worker reload/restart,
-// but the WebSocket connection and every previously-injected content/injected script do
-// not — a reload silently orphans every tab that was capturing (the popup/logs UI still
-// claims they're "Capturing" since tabState says so, but nothing reaches the server
-// anymore). Re-run enableTab for each one still open so capture resumes transparently.
+// The options page doubles as onboarding: connection status, capture/privacy defaults,
+// and auto-enable rules are exactly what a first-run user needs to see.
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === "install") chrome.runtime.openOptionsPage();
+});
+
+// A worker restart orphans previously-capturing tabs (tabState survives, the WS + injected scripts don't) — re-enable each one still open.
 async function resumeCaptureAfterReload(): Promise<void> {
   const states = await getAllTabStates();
   for (const [tabIdStr, state] of Object.entries(states)) {
@@ -268,6 +337,11 @@ async function resumeCaptureAfterReload(): Promise<void> {
 async function enableTab(tabId: number, mode: TabState["mode"]): Promise<string | undefined> {
   const tab = await chrome.tabs.get(tabId);
   if (!tab.url) return undefined;
+
+  // Re-enabling an already-enabled tab (e.g. resumeCaptureAfterReload racing a rule
+  // match) would otherwise orphan the old clientId's server-side buffer.
+  const existing = await getTabState(tabId);
+  if (existing) send({ version: PROTOCOL_VERSION, kind: "bye", clientId: existing.clientId });
 
   const clientId = crypto.randomUUID();
   await setTabState(tabId, { clientId, mode });
@@ -329,16 +403,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const event: CapturedEvent = { ...message.event, metadata: { ...message.event.metadata, tabId } };
       send({ version: PROTOCOL_VERSION, kind: "event", clientId: state.clientId, event });
       const bucket = await recordEvent(tabId, event);
-      // On a freshly-woken service worker, bootSettings()'s storage read can still be in
-      // flight here — without this await, notificationsEnabled may read its stale initial
-      // false and silently skip the very first error notification after every idle restart.
       await settingsReady;
       if (bucket === "errors" && notificationsEnabled) {
-        // "notifications" is a required manifest permission (auto-granted at install, no
-        // runtime prompt exists for it) — this can still read "denied" if the user turned
-        // it off via chrome://settings/content/notifications, or the OS itself blocks
-        // Chrome. There's nothing more actionable to do here beyond a clear log; the
-        // options page surfaces the same check where the user can actually see it.
+
         chrome.notifications.getPermissionLevel((level) => {
           if (level !== "granted") {
             console.warn(
@@ -370,10 +437,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // Polling fallback for the popup/logs live-state ports: a long-lived port opened before
-  // the MV3 service worker was suspended becomes a zombie once the worker restarts (its
-  // in-memory ports/allPorts registries in live-state.ts are wiped). sendMessage always
-  // wakes the worker fresh per call, so it self-heals regardless of port health.
   if (message?.type === "mobius-mcp/get-live-state" && typeof message.tabId === "number") {
     getPushState(message.tabId).then(sendResponse);
     return true;
@@ -447,17 +510,10 @@ chrome.runtime.onConnect.addListener((port) => {
 
 const lastKnownUrl = new Map<number, string>();
 
-// Injected scripts run per-document, so any prior state is gone the moment a tab
-// navigates. Re-evaluate rule matches fresh on every top-level navigation; a
-// manual toggle does not persist across navigation and must be re-clicked. A
-// debug session likewise does not survive a navigation (its clientId is gone).
 chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (details.frameId !== 0) return;
   const fromUrl = lastKnownUrl.get(details.tabId);
   lastKnownUrl.set(details.tabId, details.url);
-
-  // The previous document's clientId is about to be discarded below — tell the server
-  // it's gone, or it lingers in get_connected_tabs forever (nothing else ever byes it).
   const previousState = await getTabState(details.tabId);
   if (previousState) send({ version: PROTOCOL_VERSION, kind: "bye", clientId: previousState.clientId });
   await clearTabState(details.tabId);
@@ -465,13 +521,6 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   const rules = await getRules();
   const rule = findMatchingRule(details.url, rules);
   if (!rule) return;
-
-  // Rules are stored even if the user later revokes the site's permission (e.g. via
-  // chrome://extensions), so re-check here instead of assuming a saved rule is still usable.
-  if (!(await hasOrigin(ruleToOrigin(rule.pattern)))) {
-    debugLog(`rule "${rule.pattern}" matched but host permission is missing, skipping auto-enable`);
-    return;
-  }
 
   const clientId = await enableTab(details.tabId, "rule");
   if (!clientId) return;
@@ -487,4 +536,5 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   disableTab(tabId);
   detach(tabId);
+  lastKnownUrl.delete(tabId);
 });

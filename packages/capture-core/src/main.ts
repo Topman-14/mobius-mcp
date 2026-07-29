@@ -3,7 +3,7 @@ import { DEFAULT_REDACTION, CONSOLE_METHODS } from "./data.ts";
 import { redactText, redactHeaderValue, redactBodyText } from "./utils/redact.ts";
 import { safeStringify } from "./utils/stringify.ts";
 import { extractHeaders, findHeaderValue, parseXhrHeaders } from "./utils/headers.ts";
-import { capBody, isCapturableContentType, captureRequestBodyValue, readBodyText } from "./utils/body.ts";
+import { capBody, isCapturableContentType, exceedsBodyCaptureLimit, captureRequestBodyValue, readBodyText } from "./utils/body.ts";
 import { shortSelector } from "./utils/dom.ts";
 
 export function patchConsole(emit: Emit, redaction: RedactionOptions = DEFAULT_REDACTION): () => void {
@@ -12,13 +12,18 @@ export function patchConsole(emit: Emit, redaction: RedactionOptions = DEFAULT_R
   for (const method of CONSOLE_METHODS) {
     const originalFn = console[method].bind(console);
     console[method] = (...args: unknown[]) => {
-      emit({
-        type: `console.${method}` as CapturedEvent["type"],
-        timestamp: Date.now(),
-        url: window.location.href,
-        message: redactText(args.map(safeStringify).join(" "), redaction),
-        args,
-      } as CapturedEvent);
+      // A throwing emit (e.g. a non-cloneable value hitting postMessage) must never
+      // break the app's own console call.
+      try {
+        emit({
+          type: `console.${method}` as CapturedEvent["type"],
+          timestamp: Date.now(),
+          url: window.location.href,
+          message: redactText(args.map(safeStringify).join(" "), redaction),
+        } as CapturedEvent);
+      } catch {
+        // swallow — losing one captured event beats crashing the host app
+      }
       originalFn(...args);
     };
   }
@@ -113,7 +118,11 @@ export function patchNetwork(emit: Emit, redaction: RedactionOptions = DEFAULT_R
           requestBody,
         );
 
-        if (isCapturableContentType(mimeType)) {
+        if (!isCapturableContentType(mimeType)) {
+          emit({ ...base, responseBodyOmittedReason: "non-text content-type" } as CapturedEvent);
+        } else if (exceedsBodyCaptureLimit(findHeaderValue(responseHeaders, "content-length"))) {
+          emit({ ...base, responseBodyOmittedReason: "response too large to capture" } as CapturedEvent);
+        } else {
           response
             .clone()
             .text()
@@ -122,8 +131,6 @@ export function patchNetwork(emit: Emit, redaction: RedactionOptions = DEFAULT_R
               emit({ ...base, responseBody: redactBodyText(body, mimeType, redaction), responseBodyTruncated: truncated } as CapturedEvent);
             })
             .catch(() => emit({ ...base, responseBodyOmittedReason: "failed to read response body" } as CapturedEvent));
-        } else {
-          emit({ ...base, responseBodyOmittedReason: "non-text content-type" } as CapturedEvent);
         }
       };
 
@@ -283,17 +290,23 @@ export function patchNavigation(emit: Emit): () => void {
 
 export function patchDomMutations(emit: Emit): () => void {
   const observer = new MutationObserver((mutations) => {
+    let addedCount = 0;
+    let removedCount = 0;
     for (const mutation of mutations) {
-      emit({
-        type: "dom.mutation",
-        timestamp: Date.now(),
-        url: window.location.href,
-        mutationType: mutation.type,
-        targetSelector: mutation.target instanceof Element ? shortSelector(mutation.target) : undefined,
-        addedCount: mutation.addedNodes.length,
-        removedCount: mutation.removedNodes.length,
-      });
+      addedCount += mutation.addedNodes.length;
+      removedCount += mutation.removedNodes.length;
     }
+    const first = mutations[0];
+    emit({
+      type: "dom.mutation",
+      timestamp: Date.now(),
+      url: window.location.href,
+      mutationType: first.type,
+      targetSelector: first.target instanceof Element ? shortSelector(first.target) : undefined,
+      addedCount,
+      removedCount,
+      recordCount: mutations.length,
+    });
   });
 
   observer.observe(document.documentElement, { childList: true, attributes: true, characterData: true, subtree: true });
