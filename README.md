@@ -9,7 +9,7 @@
   <a href="https://github.com/Topman-14/mobius-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Topman-14/mobius-mcp/actions/workflows/ci.yml/badge.svg"></a>
 </div>
 
-Give AI coding agents (Claude Code, Codex CLI, Gemini CLI, etc.) live access to your web app's runtime — console logs, errors, network requests, and navigation events — without copy-pasting anything into chat.
+Give AI coding agents (Claude Code, Codex CLI, Gemini CLI, etc.) live access to your web app's runtime — and the ability to drive it. Read console logs, errors, network requests, and navigation events, or have the agent open a tab, click/hover an element, and inspect what happened next — all without copy-pasting anything into chat.
 
 Local-first. No cloud services, no telemetry, no external APIs.
 
@@ -35,7 +35,8 @@ Local-first. No cloud services, no telemetry, no external APIs.
 ## Features
 
 - Live `console.*`, error, network (`fetch`/XHR), and navigation streaming into MCP tools — ask your agent instead of pasting logs into chat
-- Multi-tab aware, opt-in capture per tab (nothing streams until you enable it)
+- Drive the browser, not just observe it: `open_tab`/`enable_capture` to start a session without clicking the toolbar icon, `snapshot_page` for an indexed tree of what's on the page, `click`/`hover` via real trusted CDP input events (with a visible cursor + HUD overlay so a human watching the tab can follow along)
+- Multi-tab aware, opt-in capture per tab (nothing streams until you enable it, or an agent enables it via `open_tab`/`enable_capture`)
 - `start_debug_session`/`end_debug_session` — one ordered timeline instead of hand-correlating separate snapshots
 - `wait_for_*` tools block (with timeout) instead of polling in a loop
 - Full [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) capability set via the browser extension: screenshots, DOM/accessibility snapshots, `evaluate_js`, CPU/memory profiling
@@ -99,7 +100,7 @@ A browser client captures runtime events — `console.*`, uncaught errors, unhan
 
 2. **[Install the browser extension](https://chromewebstore.google.com/detail/bdhnfoelpknephokgkldjopdggkakdop?utm_source=item-share-cb).** This is currently the only supported way to stream a tab's runtime into the server — [see below](#client-capabilities) for why.
 
-   Click the toolbar icon and hit "Enable tab" on the tab you want to debug — capture is opt-in per tab, nothing streams by default (see [Enabling capture](#enabling-capture-extension)).
+   Click the toolbar icon and hit "Enable tab" on the tab you want to debug — capture is opt-in per tab, nothing streams by default (see [Enabling capture](#enabling-capture-extension)). An agent can also open and enable a tab itself via `open_tab`/`enable_capture`, without the click.
 
    > An npm package (`mobius-client`) for direct app integration without the extension exists but **development is paused** — see [Roadmap](#roadmap) for why. It still works at its baseline (console/error/network/navigation capture only) if the extension truly isn't an option for your setup, but isn't the recommended path right now.
 
@@ -133,6 +134,8 @@ The server reads these environment variables on startup — set them in the `env
 
 The extension never captures anything by default. Click its toolbar icon and hit "Enable tab" on the tab you want to debug — that's the one opt-in. Multiple tabs can be enabled independently. For dev servers you always want captured without clicking every time, add a rule (e.g. `localhost:5173`) on the extension's settings page (right-click the icon → Options) — matching tabs auto-enable on navigation.
 
+An agent can also start capture itself, without a toolbar click, via `open_tab` (opens a new tab) or `enable_capture` (an already-open tab's Chrome tab id, from `list_tabs`) — consent still comes from the human having installed and granted the extension its permissions, just not per tab.
+
 ## MCP tools
 
 * `mobius_diagnose` — check whether mobius-mcp is usable right now: connection state, ever-connected history, and ordered remediation steps. Never fails, never requires a tab. Call this first in a session, and again after any connection-related tool error — see [Troubleshooting](#troubleshooting).
@@ -144,8 +147,12 @@ The extension never captures anything by default. Click its toolbar icon and hit
 * `get_connected_tabs`
 * `get_capture_settings` — which event categories (console/errors/network/navigation/dom) a connected tab is actively capturing, so an empty result from another tool can be distinguished from "that category is off"
 * `set_active_tab`
+* `open_tab` — open a new tab (optionally to a URL) and bring it to the foreground; extension only
+* `enable_capture` — start capture on an already-open tab by its Chrome tab id, without a toolbar click; extension only
 * `navigate_to`, `switch_tab`, `reload_tab` — browser control (extension only)
 * `list_tabs` — every open tab, not just capture-enabled ones (requires an extension connected somewhere)
+* `snapshot_page` — a pruned, indexed tree of the elements on a tab that matter for driving it (interactive/labelled/text-bearing), each with a `ref`, role, accessible name, and bounding box; extension only, requires CDP
+* `click`, `hover` — real trusted CDP input events addressed by a `snapshot_page` `ref` or a CSS selector; extension only, requires CDP
 * `get_job_status`, `get_job_result`, `cancel_job` — for longer-running operations (recordings, profiling)
 * `start_debug_session`, `end_debug_session` — record a time-ordered timeline of console/network/navigation/DOM events instead of correlating separate snapshots by hand (single-tab, doesn't survive a full-page navigation)
 * `wait_for_console_error`, `wait_for_navigation`, `wait_for_request`, `wait_for_element` — block (with timeout) until a condition occurs instead of polling `get_logs_since` in a loop
@@ -184,9 +191,10 @@ Event ingestion (console/errors/network) is identical across both browser client
 | Console/error/network/navigation event streaming | ✅ | ✅ |
 | `get_recent_logs` / `get_recent_errors` / `get_network_requests` / `get_logs_since` | ✅ | ✅ |
 | Multi-tab awareness (`get_connected_tabs`, `set_active_tab`, `get_capture_settings`) | ✅ | ✅ (one entry per app instance) |
-| Opt-in capture (popup toggle / settings-page rules) | ✅ | n/a — capture starts as soon as `startMobiusStream()` runs |
-| Browser control (`navigate_to`, `reload_tab`, `switch_tab`) | ✅ | ❌ |
+| Opt-in capture (popup toggle / settings-page rules / agent-initiated via `open_tab`, `enable_capture`) | ✅ | n/a — capture starts as soon as `startMobiusStream()` runs |
+| Browser control (`navigate_to`, `reload_tab`, `switch_tab`, `open_tab`) | ✅ | ❌ |
 | Debug sessions (`start_debug_session`/`end_debug_session`) | ✅ | ✅ (console/network/navigation event types only — no DOM mutations) |
+| Page snapshots (`snapshot_page`), input synthesis (`click`, `hover`) | ✅ (requires CDP) | ❌ |
 | Screenshots, DOM/accessibility snapshots | ✅ (requires CDP) | ❌ |
 | CPU/memory profiling | ✅ (requires CDP) | ❌ |
 | `evaluate_js` | ✅ (requires CDP) | ❌ |

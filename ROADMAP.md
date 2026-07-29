@@ -88,10 +88,10 @@ Done:
 - **`mobius_diagnose`** (`services/diagnostics.ts`) — never fails, never needs a tab, returns a machine-readable `state` (`ready` / `no_client_ever_connected` / `client_disconnected` / `handshake_rejected` / `ws_bind_failed` / `no_server_running` / `error`) plus ordered remediation and `agentGuidance` telling the agent to relay and stop rather than retry or fall back.
 - **Every tool failure points at it** — `resolveTabId`/`requireCdp` (`utils/tools.ts`) return structured errors naming `mobius_diagnose` instead of a bare string.
 - **`npx mobius-mcp --health`** (`index.ts`) — prints the diagnose payload as JSON out-of-band (no MCP session needed), via a WS probe over the existing follower control channel (`services/controlClient.ts`). Exits 0 iff `state === "ready"`.
+- **G7. Never let `[]` be ambiguous.** `get_recent_logs`/`get_recent_errors`/`get_network_requests` no longer return a bare `[]` when the category is off — `toolResultWithCaptureHint` (`utils/tools.ts`) inlines `captureEnabled: false` and a hint pointing at `get_capture_settings` instead.
 
 Not done:
 
-- **G7. Never let `[]` be ambiguous.** `get_capture_settings` exists, but `get_recent_logs`/`get_recent_errors`/`get_network_requests` still return a bare `[]` when the category is off instead of inlining the capture flag — an agent has to know to check separately.
 - **G8. Ship `skills/` as installable.** The six skills under `skills/` aren't registered as Claude Code skills (no plugin manifest/marketplace entry), so they're invisible to exactly the sessions they were written for.
 - **G9. Prompts and resources.** Server reports `hasPrompts:false, hasResources:false`. Resources (`mobius://status`, `mobius://tabs`) and one prompt per shipped skill are unused discovery surfaces, and prompts are the main way non-Claude-Code clients without skill support could reach the scenario workflows.
 - **G10. Spike: `claude/channel`.** Claude Code logs `Channel notifications skipped: server did not declare claude/channel capability` on every connect; undocumented, unclear if worth declaring. Timebox before building against it.
