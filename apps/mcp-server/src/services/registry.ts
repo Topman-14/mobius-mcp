@@ -1,6 +1,6 @@
 import type { ClientInfo } from "@mobius-mcp/capture-core";
 import type { WebSocket } from "ws";
-import { CLIENT_PURGE_DELAY_MS } from "../data.js";
+import { CLIENT_PURGE_DELAY_MS, isTabClient } from "../data.js";
 import type { RegisteredClient } from "../types.js";
 
 export class ClientRegistry {
@@ -10,6 +10,8 @@ export class ClientRegistry {
 
   // Process-lifetime history that survives purge — see mobius_diagnose (services/diagnostics.ts),
   // which is the reason this exists: `list()` alone only reflects who's connected *right now*.
+  // Tab clients only (isTabClient) — otherwise the always-on browser-control client flips
+  // this true before any real tab streams.
   private everConnectedFlag = false;
   private lastSeenAt: number | undefined;
   private lastDisconnectReason: string | undefined;
@@ -22,16 +24,20 @@ export class ClientRegistry {
     clearTimeout(this.purgeTimers.get(client.clientId));
     this.purgeTimers.delete(client.clientId);
     this.clients.set(client.clientId, { ...client, ws, disconnectedAt: undefined });
-    this.everConnectedFlag = true;
-    this.lastSeenAt = Date.now();
+    if (isTabClient(client)) {
+      this.everConnectedFlag = true;
+      this.lastSeenAt = Date.now();
+    }
   }
 
   markDisconnected(clientId: string, reason: string = "connection_lost"): void {
     const client = this.clients.get(clientId);
     if (!client) return;
     client.disconnectedAt = Date.now();
-    this.lastSeenAt = Date.now();
-    this.lastDisconnectReason = reason;
+    if (isTabClient(client)) {
+      this.lastSeenAt = Date.now();
+      this.lastDisconnectReason = reason;
+    }
 
     const timer = setTimeout(() => {
       this.clients.delete(clientId);

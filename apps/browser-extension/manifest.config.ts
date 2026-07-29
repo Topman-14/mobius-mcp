@@ -6,8 +6,11 @@ export default defineManifest({
   version: "1.0.1",
   description:
     "Streams browser console/network events to a local mobius-mcp server for AI coding agents. Click the icon to enable capture on a tab.",
-  permissions: ["scripting", "activeTab", "storage", "tabs", "webNavigation", "debugger", "notifications", "downloads"],
-  optional_host_permissions: ["<all_urls>"],
+  permissions: ["scripting", "storage", "tabs", "webNavigation", "debugger", "notifications", "downloads"],
+  // Granted once at install so agent-driven enable_capture never blocks on a runtime
+  // permission prompt (chrome.permissions.request needs a user gesture the background
+  // worker can't produce) — capture itself still only starts per tab, on demand.
+  host_permissions: ["<all_urls>"],
   icons: {
     16: "icons/icon-16.png",
     48: "icons/icon-48.png",

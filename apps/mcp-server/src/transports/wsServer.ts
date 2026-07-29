@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import { PROTOCOL_VERSION, isProtocolVersionSupported, type ClientMessage, type ControlMessage } from "@mobius-mcp/capture-core";
+import { WS_HOST } from "../data.js";
 import type { EventStore } from "../services/store.js";
 import type { ClientRegistry } from "../services/registry.js";
 import type { CommandDispatcher } from "../services/commandDispatcher.js";
@@ -18,13 +19,13 @@ export function startWsServer(
   toolDefs: Map<string, ToolDef>,
   diagnostics: DiagnosticsService,
 ): Promise<WebSocketServer> {
-  const wss = new WebSocketServer({ host: "localhost", port });
+  const wss = new WebSocketServer({ host: WS_HOST, port });
 
   return new Promise((resolve, reject) => {
     let settled = false;
 
     wss.on("listening", () => {
-      console.error(`[mobius-mcp] WebSocket server listening on ws://localhost:${port}`);
+      console.error(`[mobius-mcp] WebSocket server listening on ws://${WS_HOST}:${port}`);
       diagnostics.reportListening(port);
       if (!settled) {
         settled = true;
@@ -90,6 +91,7 @@ export function startWsServer(
         if (message.kind === "bye" && clientIds.has(message.clientId)) {
           clientIds.delete(message.clientId);
           registry.markDisconnected(message.clientId, "bye");
+          dispatcher.failPendingForClient(message.clientId);
           return;
         }
 
@@ -102,6 +104,7 @@ export function startWsServer(
         console.error("[mobius-mcp] client disconnected");
         for (const clientId of clientIds) {
           registry.markDisconnected(clientId);
+          dispatcher.failPendingForClient(clientId);
         }
       });
     });

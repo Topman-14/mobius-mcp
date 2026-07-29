@@ -5,8 +5,7 @@ import { usePopupPort } from "../../hooks/use-popup-port.js";
 import { useSyncedSetting } from "../../hooks/use-setting.js";
 import { captureOptionsSetting } from "../../lib/capture-options.js";
 import type { TabState } from "../../lib/tab-state.js";
-import { getRules, setRules, findMatchingRule, ruleToOrigin, type CaptureRule } from "../../lib/rules.js";
-import { requestOrigin } from "../../lib/host-permissions.js";
+import { getRules, setRules, findMatchingRule, type CaptureRule } from "../../lib/rules.js";
 import { getRestrictedUrlReason } from "../../lib/restricted-url.js";
 import { Button } from "../../components/ui/button.js";
 import { Badge } from "../../components/ui/badge.js";
@@ -61,7 +60,6 @@ export function Popup() {
   const [elapsed, setElapsed] = useState<string | undefined>();
   const [rules, setRulesState] = useState<CaptureRule[]>([]);
   const [ruleJustAdded, setRuleJustAdded] = useState(false);
-  const [ruleDenied, setRuleDenied] = useState(false);
   const [captureOptions] = useSyncedSetting(captureOptionsSetting);
 
   useEffect(() => {
@@ -114,12 +112,6 @@ export function Popup() {
 
   const addCurrentHostRule = async () => {
     if (!host) return;
-    setRuleDenied(false);
-    const granted = await requestOrigin(ruleToOrigin(host));
-    if (!granted) {
-      setRuleDenied(true);
-      return;
-    }
     const rule: CaptureRule = { id: crypto.randomUUID(), pattern: host };
     const next = [...(await getRules()), rule];
     await setRules(next);
@@ -149,9 +141,6 @@ export function Popup() {
           <InfinityIcon size={16} weight="bold" className="text-primary" />
           <span className="text-sm font-semibold">Mobius</span>
         </div>
-        {/*<div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">{STATUS_LABEL[status]}</span>
-        </div>*/}
       </div>
 
       {/* current tab */}
@@ -334,8 +323,6 @@ export function Popup() {
             </span>
           </Button>
         )}
-
-        {ruleDenied && <p className="text-center text-xs text-destructive">Permission denied — {host} won't auto-capture. Try again if that was a mistake.</p>}
 
         {ruleJustAdded && (
           <p className="text-center text-xs text-muted-foreground">

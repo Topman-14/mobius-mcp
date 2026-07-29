@@ -1,15 +1,23 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
-import type { EventType } from "@mobius-mcp/capture-core";
+import type { ClientInfo, EventType } from "@mobius-mcp/capture-core";
 
 export const WS_PORT_DEFAULT = 7331;
 
-// Single source of truth for the server's own version — read from package.json at
-// startup rather than build-time-inlined, so it's correct running from source too
-// (`npm run start -w apps/mcp-server`), not just from a tsup build. Every place that
-// used to hardcode a version (both McpServer constructors, HAR_CREATOR_VERSION) reads
-// this instead — three independent hardcodes previously drifted to three different values.
+// Tags the extension's tab-independent client (background.ts) — must be excluded via
+// isTabClient wherever "connected tabs" are enumerated, or it inflates tab counts.
+export const BROWSER_CONTROL_CAPABILITY = "browser-control";
+
+export function isTabClient(c: ClientInfo): boolean {
+  return !c.capabilities.includes(BROWSER_CONTROL_CAPABILITY);
+}
+
+// Literal loopback, not "localhost" — its DNS resolution can non-deterministically return
+// 127.0.0.1 or ::1, letting two processes both bind without ever hitting EADDRINUSE.
+export const WS_HOST = "127.0.0.1";
+
+// Read from package.json rather than build-time-inlined, so `npm run start` from source is correct too, not just tsup builds.
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 export const VERSION = version;
 

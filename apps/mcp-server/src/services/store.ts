@@ -19,7 +19,16 @@ class TabBuffer {
   }
 
   getSince(cursor: number, opts: { types?: EventType[]; limit?: number } = {}): BrowserEvent[] {
-    let filtered = this.events.filter((e) => e.seq > cursor);
+    // events is seq-ascending, so binary-search the first entry past the cursor instead
+    // of scanning the whole buffer on every poll.
+    let lo = 0;
+    let hi = this.events.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.events[mid].seq > cursor) hi = mid;
+      else lo = mid + 1;
+    }
+    let filtered = this.events.slice(lo);
     if (opts.types) filtered = filtered.filter((e) => opts.types!.includes(e.type));
     if (opts.limit) filtered = filtered.slice(0, opts.limit);
     return filtered;

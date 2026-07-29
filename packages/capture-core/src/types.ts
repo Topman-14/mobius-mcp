@@ -14,7 +14,6 @@ export interface ConsoleEvent extends EventBase {
   // Set only if the server's own store cap cut this further — the original value
   // isn't recoverable afterward (unlike a network body, there's no fallback fetch).
   messageTruncated?: boolean;
-  args?: unknown[];
 }
 
 export interface RuntimeErrorEvent extends EventBase {
@@ -67,6 +66,8 @@ export interface DomMutationEvent extends EventBase {
   targetSelector?: string;
   addedCount: number;
   removedCount: number;
+  /** How many raw MutationRecords were coalesced into this one event. */
+  recordCount?: number;
 }
 
 // Every event a client can emit, discriminated by `type`.
@@ -174,10 +175,7 @@ export interface BodyCapture {
   omittedReason?: string;
 }
 
-// Page snapshot — Stage H (ROADMAP.md). The result of `snapshot_page`: a pruned, indexed
-// tree of the elements an agent can act on, built in-page by apps/browser-extension/snapshot/
-// and returned over CDP Runtime.evaluate. `ref` is scoped to `snapshotId` — it is not durable
-// across a re-render or a later `snapshot_page` call.
+// `snapshot_page` result: a pruned element tree. `ref` is scoped to `snapshotId`, not durable across re-renders.
 export interface SnapshotBox {
   x: number;
   y: number;

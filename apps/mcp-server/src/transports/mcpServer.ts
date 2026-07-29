@@ -9,16 +9,23 @@ import type { JobManager } from "../services/jobs.js";
 import type { DebugSessionManager } from "../services/debugSession.js";
 import type { ToolDef } from "../types.js";
 import type { DiagnosticsService } from "../services/diagnostics.js";
-import { CONSOLE_TYPES, ERROR_TYPES, NETWORK_TYPES, VERSION } from "../data.js";
+import { CONSOLE_TYPES, ERROR_TYPES, NETWORK_TYPES, VERSION, isTabClient } from "../data.js";
 import { waitForConsoleError, waitForNavigation, waitForRequest } from "../utils/waitFor.js";
 import { createHarBodyFetcher, toHar } from "../utils/har.js";
 import { errorMessage } from "../utils/errors.js";
-import { requireCdp, resolveCdpTab, resolveTabId, runCommand, toolError, toolResult, toolResultWithCaptureHint } from "../utils/tools.js";
+import {
+  requireCdp,
+  resolveBrowserControlClient,
+  resolveCdpTab,
+  resolveTabId,
+  runCommand,
+  runImageCommand,
+  toolError,
+  toolResult,
+  toolResultWithCaptureHint,
+} from "../utils/tools.js";
 
-// Injected into MCP clients' system prompts as server-level `instructions` — the
-// highest-leverage single fix for mobius losing to first-party browser agents by
-// default: without this, nothing tells the agent when to reach for mobius or that a
-// preflight check exists before the first real tool call.
+
 export const MCP_INSTRUCTIONS = `mobius-mcp gives live access to a running web app: console, errors, network (with bodies), navigation, DOM mutations, HAR export, CPU/memory profiles, screenshots, and DOM/accessibility snapshots.
 
 Use it whenever the question is "what is this app actually doing at runtime" — a failing request, a pasted error, a slow page, a silent 200, state after a click. Prefer it over any other browser tool for these questions when it is connected.
@@ -27,9 +34,7 @@ Before the first mobius tool call in a session, call \`mobius_diagnose\`. If it 
 
 Prefer \`wait_for_*\` tools over polling \`get_logs_since\`. Prefer \`start_debug_session\` over correlating separate snapshots by hand. Check \`get_capture_settings\` before concluding an empty result means nothing happened — a category may simply be turned off.`;
 
-/** Every call below goes through the same 4-arg server.tool(name, description, schema, handler)
- * signature, so recording them for the control channel (see ControlMessage in the protocol
- * package) is a one-line intercept rather than restructuring each tool definition. */
+
 function withToolRecording(server: McpServer, defs: Map<string, ToolDef>): McpServer {
   const original = server.tool.bind(server);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -112,7 +117,12 @@ export function createMcpServer(
   });
 
   server.tool("get_connected_tabs", "List browser tabs/pages currently streaming events to this server.", {}, async () =>
-    toolResult(registry.list().map((c) => ({ ...c, active: c.clientId === activeTabId }))),
+    toolResult(
+      registry
+        .list()
+        .filter(isTabClient)
+        .map((c) => ({ ...c, active: c.clientId === activeTabId })),
+    ),
   );
 
   server.tool(
@@ -179,11 +189,31 @@ export function createMcpServer(
     "List all open browser tabs (not just ones with capture enabled), via a connected extension.",
     {},
     async () => {
-      const extensionClient = registry.list().find((c) => c.capabilities.includes("cdp"));
-      if (!extensionClient) {
-        return toolError("No extension connected. list_tabs requires the mobius-mcp browser extension to be enabled on at least one tab. Call mobius_diagnose for the reason and remediation steps.");
-      }
-      return runCommand(dispatcher, extensionClient.clientId, "list_tabs");
+      const resolved = resolveBrowserControlClient(registry);
+      if ("error" in resolved) return resolved.error;
+      return runCommand(dispatcher, resolved.clientId, "list_tabs");
+    },
+  );
+
+  server.tool(
+    "open_tab",
+    "Open a new browser tab (optionally navigating to a URL) and bring it to the foreground. Returns its chromeTabId — pass that to enable_capture to start streaming it.",
+    { url: z.string().optional() },
+    async ({ url }) => {
+      const resolved = resolveBrowserControlClient(registry);
+      if ("error" in resolved) return resolved.error;
+      return runCommand(dispatcher, resolved.clientId, "open_tab", { url });
+    },
+  );
+
+  server.tool(
+    "enable_capture",
+    "Start mobius-mcp capture on an already-open tab, addressed by the chromeTabId from open_tab or list_tabs (NOT the clientId from get_connected_tabs). Returns the new tabId (clientId) to pass to other tools — no user interaction required.",
+    { chromeTabId: z.number().int() },
+    async ({ chromeTabId }) => {
+      const resolved = resolveBrowserControlClient(registry);
+      if ("error" in resolved) return resolved.error;
+      return runCommand(dispatcher, resolved.clientId, "enable_capture", { chromeTabId });
     },
   );
 
@@ -213,7 +243,7 @@ export function createMcpServer(
     async ({ tabId }) => {
       const resolved = resolveCdpTab(registry, activeTabId, tabId);
       if ("error" in resolved) return resolved.error;
-      return runCommand(dispatcher, resolved.clientId, "take_screenshot");
+      return runImageCommand(dispatcher, resolved.clientId, "take_screenshot");
     },
   );
 
@@ -224,7 +254,7 @@ export function createMcpServer(
     async ({ tabId }) => {
       const resolved = resolveCdpTab(registry, activeTabId, tabId);
       if ("error" in resolved) return resolved.error;
-      return runCommand(dispatcher, resolved.clientId, "capture_full_page");
+      return runImageCommand(dispatcher, resolved.clientId, "capture_full_page");
     },
   );
 
@@ -235,7 +265,7 @@ export function createMcpServer(
     async ({ tabId, selector }) => {
       const resolved = resolveCdpTab(registry, activeTabId, tabId);
       if ("error" in resolved) return resolved.error;
-      return runCommand(dispatcher, resolved.clientId, "capture_element", { selector });
+      return runImageCommand(dispatcher, resolved.clientId, "capture_element", { selector });
     },
   );
 
@@ -441,12 +471,6 @@ export function createMcpServer(
   return { server, toolDefs };
 }
 
-/**
- * Built by a follower process (lost the port-bind race to an existing hub — see index.ts).
- * Reuses the hub's exact tool metadata (name/description/schema) so `tools/list` looks
- * identical to a real hub, but every handler forwards to the hub over `invoke` instead of
- * touching local state — a follower never has a real store/registry/dispatcher of its own.
- */
 export function createFollowerMcpServer(toolDefs: Map<string, ToolDef>, invoke: (tool: string, args: unknown) => Promise<unknown>): McpServer {
   const server = new McpServer({ name: "mobius-mcp", version: VERSION }, { instructions: MCP_INSTRUCTIONS });
   for (const [name, def] of toolDefs) {
@@ -457,9 +481,6 @@ export function createFollowerMcpServer(toolDefs: Map<string, ToolDef>, invoke: 
         return toolError(errorMessage(err));
       }
     };
-    // def.schema is untyped (`any`) since it's harvested at runtime from an arbitrary tool
-    // definition — the 4-arg (name, description, schema, handler) overload is still the
-    // right one, TS just can't prove it through the erased type, so this bypasses the check.
     (server.tool as (...args: unknown[]) => unknown)(name, def.description, def.schema, handler);
   }
   return server;

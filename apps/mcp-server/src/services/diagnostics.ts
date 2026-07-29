@@ -1,7 +1,7 @@
 import { PROTOCOL_VERSION } from "@mobius-mcp/capture-core";
 import type { ClientRegistry } from "./registry.js";
 import type { DiagnosePayload, DiagnoseState, RemediationStep } from "../types.js";
-import { VERSION } from "../data.js";
+import { VERSION, WS_HOST, isTabClient } from "../data.js";
 import { probeControlRequest } from "./controlClient.js";
 
 const HEALTH_CHECK_TIMEOUT_MS = 3000;
@@ -36,7 +36,7 @@ export class DiagnosticsService {
         return basePayload(port, {
           state: "no_server_running",
           remediation: [
-            { step: `No mobius-mcp server is listening on ws://localhost:${port}.`, userAction: false },
+            { step: `No mobius-mcp server is listening on ws://${WS_HOST}:${port}.`, userAction: false },
             { step: "Start it (e.g. the MCP client config that launches `npx -y mobius-mcp`), or check CONSOLE_STREAM_PORT if a non-default port is configured.", userAction: true },
           ],
           agentGuidance: "No mobius-mcp process is running at all. Relay the remediation to the user and do not retry mobius tools until a server is confirmed running.",
@@ -45,7 +45,7 @@ export class DiagnosticsService {
       return basePayload(port, { state: "error", error: probe.error, remediation: [], agentGuidance: "" });
     }
 
-    // control-response forwards the tool handler's raw ToolTextContent shape verbatim
+    // control-response forwards the tool handler's raw ToolContent shape verbatim
     // (see wsServer.ts), so it needs unwrapping same as an MCP client would.
     try {
       const wrapped = probe.result as { content: Array<{ type: string; text: string }> };
@@ -84,7 +84,10 @@ export class DiagnosticsService {
   }
 
   diagnose(): DiagnosePayload {
-    const clients = this.registry.list();
+    const clients = this.registry.list().filter(isTabClient);
+    // The extension's tab-independent browser-control client: when it's connected the
+    // agent can enable capture itself (open_tab/enable_capture) — no user action needed.
+    const extensionConnected = this.registry.list().some((c) => !isTabClient(c));
     const { everConnected, lastClientSeenAt, lastDisconnectReason } = this.registry.getHistory();
 
     const state: InProcessState = !this.wsListening
@@ -116,17 +119,24 @@ export class DiagnosticsService {
         ];
         break;
       case "no_client_ever_connected":
-        remediation = [
-          { step: "Confirm the mobius-mcp browser extension is installed and enabled at chrome://extensions.", userAction: true },
-          { step: "Click the mobius-mcp toolbar icon on the target tab and toggle capture on.", userAction: true },
-          { step: "Reload the tab after enabling capture.", userAction: true },
-        ];
+        remediation = extensionConnected
+          ? [{ step: "The browser extension is connected but no tab is streaming yet — the agent can start one itself via open_tab (or list_tabs) + enable_capture.", userAction: false }]
+          : [
+              { step: "Confirm the mobius-mcp browser extension is installed and enabled at chrome://extensions.", userAction: true },
+              { step: "Click the mobius-mcp toolbar icon on the target tab and toggle capture on.", userAction: true },
+              { step: "Reload the tab after enabling capture.", userAction: true },
+            ];
         break;
       case "client_disconnected":
-        remediation = [
-          { step: `A tab was connected before but none are connected now${lastDisconnectReason ? ` (last disconnect: ${lastDisconnectReason})` : ""}.`, userAction: false },
-          { step: "Reload the target tab, or click the mobius-mcp toolbar icon to re-enable capture.", userAction: true },
-        ];
+        remediation = extensionConnected
+          ? [
+              { step: `A tab was connected before but none are connected now${lastDisconnectReason ? ` (last disconnect: ${lastDisconnectReason})` : ""}.`, userAction: false },
+              { step: "The browser extension is still connected — the agent can re-enable capture itself via list_tabs + enable_capture (or open_tab for a fresh tab).", userAction: false },
+            ]
+          : [
+              { step: `A tab was connected before but none are connected now${lastDisconnectReason ? ` (last disconnect: ${lastDisconnectReason})` : ""}.`, userAction: false },
+              { step: "Reload the target tab, or click the mobius-mcp toolbar icon to re-enable capture.", userAction: true },
+            ];
         break;
     }
 
@@ -145,7 +155,9 @@ export class DiagnosticsService {
       agentGuidance:
         state === "ready"
           ? "mobius-mcp is ready — proceed with other tools."
-          : 'Do not call other mobius tools until state is "ready". Relay the remediation steps to the user verbatim and stop — do not retry automatically, and do not silently fall back to another browser tool.',
+          : extensionConnected && (state === "no_client_ever_connected" || state === "client_disconnected")
+            ? "The extension is connected but no tab is streaming. Enable one yourself: list_tabs (or open_tab) to find/create the target tab, then enable_capture with its chromeTabId — no user action is required."
+            : 'Do not call other mobius tools until state is "ready". Relay the remediation steps to the user verbatim and stop — do not retry automatically, and do not silently fall back to another browser tool.',
     };
   }
 }

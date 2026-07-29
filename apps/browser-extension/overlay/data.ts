@@ -5,10 +5,11 @@ export const CURSOR_MOVE_MS = 220;
 export const CURSOR_COLOR = "#0a0a0a";
 export const CURSOR_GLOW_COLOR = "#4cff3d";
 
-// Four-pointed concave "kite"/sparkle silhouette, viewBox 0 0 24 24. One shape today;
-// Stage I is expected to swap this per action type (pointer vs. text-entry vs. scroll) once
-// the action tools exist to drive it — not built yet, see ROADMAP.md Stage I5.
-export const CURSOR_SPARKLE_PATH = "M12 0 C13 8 16 11 24 12 C16 13 13 16 12 24 C11 16 8 13 0 12 C8 11 11 8 12 0 Z";
+// Phosphor "Cursor" icon, fill weight, inlined (MIT) to avoid an extension-resource fetch
+// from a MAIN-world page context.
+export const CURSOR_VIEW_BOX = "0 0 256 256";
+export const CURSOR_SPARKLE_PATH =
+  "M220.49,207.8,207.8,220.49a12,12,0,0,1-17,0l-56.57-56.57L115,214.08l-.13.33A15.84,15.84,0,0,1,100.26,224l-.78,0a15.82,15.82,0,0,1-14.41-11L32.8,52.92A15.95,15.95,0,0,1,52.92,32.8L213,85.07a16,16,0,0,1,1.41,29.8l-.33.13-50.16,19.27,56.57,56.56A12,12,0,0,1,220.49,207.8Z";
 
 export const HUD_MAX_LOG_ENTRIES = 50;
 export const HUD_COLLAPSED_SIZE_PX = 44;

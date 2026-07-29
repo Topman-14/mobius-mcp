@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import { PROTOCOL_VERSION, type ControlMessage } from "@mobius-mcp/capture-core";
-import { CONTROL_REQUEST_TIMEOUT_MS } from "../data.js";
+import { CONTROL_REQUEST_TIMEOUT_MS, WS_HOST } from "../data.js";
 
 export type ControlProbeResult = { ok: true; result: unknown } | { ok: false; reason: "unreachable" | "error"; error?: string };
 
@@ -20,7 +20,7 @@ export function probeControlRequest(port: number, tool: string, args: unknown, t
       resolve(result);
     };
 
-    const ws = new WebSocket(`ws://localhost:${port}`);
+    const ws = new WebSocket(`ws://${WS_HOST}:${port}`);
     const timer = setTimeout(() => settle({ ok: false, reason: "unreachable" }), timeoutMs);
 
     ws.on("open", () => {
@@ -54,12 +54,12 @@ export class ControlClient {
   }
 
   private connect(): void {
-    const ws = new WebSocket(`ws://localhost:${this.port}`);
+    const ws = new WebSocket(`ws://${WS_HOST}:${this.port}`);
     this.ws = ws;
 
     ws.on("open", () => {
       this.retryDelay = 500;
-      console.error(`[mobius-mcp] follower mode: connected to hub on ws://localhost:${this.port}`);
+      console.error(`[mobius-mcp] follower mode: connected to hub on ws://${WS_HOST}:${this.port}`);
     });
 
     ws.on("message", (raw) => {

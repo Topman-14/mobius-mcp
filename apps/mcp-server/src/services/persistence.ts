@@ -5,6 +5,7 @@ import type { EventSink } from "../types.js";
 import { MAX_EVENTS_PER_TAB, PERSISTENCE_DIR, PERSISTENCE_PRUNE_INTERVAL_MS, PERSISTENCE_TTL_MS } from "../data.js";
 
 const FILE_SUFFIX = ".jsonl";
+const FLUSH_INTERVAL_MS = 250;
 
 /**
  * Crash/restart durability for EventStore: one append-only JSONL file per tab in a
@@ -18,8 +19,12 @@ const FILE_SUFFIX = ".jsonl";
 export class EventPersistence implements EventSink {
   private queues = new Map<string, Promise<void>>();
   private pruneTimer: NodeJS.Timeout;
+  private pendingLines = new Map<string, string[]>();
+  private flushTimer: NodeJS.Timeout | undefined;
+  private ready: Promise<unknown>;
 
   constructor(private dir: string = PERSISTENCE_DIR, private ttlMs: number = PERSISTENCE_TTL_MS) {
+    this.ready = fs.mkdir(this.dir, { recursive: true }).catch(() => {});
     this.pruneTimer = setInterval(() => void this.prune(), PERSISTENCE_PRUNE_INTERVAL_MS);
     this.pruneTimer.unref();
   }
@@ -36,15 +41,34 @@ export class EventPersistence implements EventSink {
     this.queues.set(clientId, next);
   }
 
-  /** Fire-and-forget: live capture must never block on disk I/O. */
+  /** Fire-and-forget: live capture must never block on disk I/O. Lines are batched in
+   * memory and flushed on a short interval — one appendFile per burst, not per event. */
   append(event: BrowserEvent): void {
-    this.enqueue(event.clientId, async () => {
-      await fs.mkdir(this.dir, { recursive: true });
-      await fs.appendFile(this.fileFor(event.clientId), JSON.stringify(event) + "\n");
-    });
+    let lines = this.pendingLines.get(event.clientId);
+    if (!lines) {
+      lines = [];
+      this.pendingLines.set(event.clientId, lines);
+    }
+    lines.push(JSON.stringify(event) + "\n");
+    if (!this.flushTimer) {
+      this.flushTimer = setTimeout(() => this.flush(), FLUSH_INTERVAL_MS);
+      this.flushTimer.unref();
+    }
+  }
+
+  private flush(): void {
+    this.flushTimer = undefined;
+    for (const [clientId, lines] of this.pendingLines) {
+      this.enqueue(clientId, async () => {
+        await this.ready;
+        await fs.appendFile(this.fileFor(clientId), lines.join(""));
+      });
+    }
+    this.pendingLines = new Map();
   }
 
   remove(clientId: string): void {
+    this.pendingLines.delete(clientId);
     this.enqueue(clientId, async () => {
       await fs.rm(this.fileFor(clientId), { force: true });
     });
@@ -106,6 +130,8 @@ export class EventPersistence implements EventSink {
   }
 
   close(): void {
+    clearTimeout(this.flushTimer);
+    this.flush();
     clearInterval(this.pruneTimer);
   }
 }
