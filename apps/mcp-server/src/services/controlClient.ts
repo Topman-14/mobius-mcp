@@ -5,9 +5,6 @@ import { CONTROL_REQUEST_TIMEOUT_MS, WS_HOST } from "../data.js";
 
 export type ControlProbeResult = { ok: true; result: unknown } | { ok: false; reason: "unreachable" | "error"; error?: string };
 
-/** A single bounded control-request, used by DiagnosticsService.checkExternal — unlike
- * ControlClient below, this doesn't stay connected or retry; it answers within
- * `timeoutMs` or reports unreachable. */
 export function probeControlRequest(port: number, tool: string, args: unknown, timeoutMs: number): Promise<ControlProbeResult> {
   return new Promise((resolve) => {
     const requestId = randomUUID();
@@ -42,8 +39,6 @@ export function probeControlRequest(port: number, tool: string, args: unknown, t
   });
 }
 
-/** Used by a follower process (see index.ts) to forward MCP tool calls to whichever
- * process actually won the WS port bind and is acting as the hub. */
 export class ControlClient {
   private ws: WebSocket | null = null;
   private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();

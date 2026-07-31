@@ -8,9 +8,6 @@ import type { CommandDispatcher } from "../services/commandDispatcher.js";
 import type { DiagnosticsService } from "../services/diagnostics.js";
 import type { ToolDef } from "../types.js";
 
-/** Resolves once the port is actually bound (this process becomes the hub), rejects on
- * bind failure (most commonly EADDRINUSE — another mobius-mcp process already holds the
- * port, so the caller should fall back to follower mode instead of crashing). */
 export function startWsServer(
   port: number,
   store: EventStore,

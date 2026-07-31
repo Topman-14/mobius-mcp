@@ -37,8 +37,6 @@ const {
   toolDefs
 } = createMcpServer(store, registry, dispatcher, jobs, debugSessions, diagnostics);
 
-// Only one mobius-mcp process per machine can bind the WS port, every other process will run as a follower here.
-
 let mcpServer = server;
 try {
   await startWsServer(port, store, registry, dispatcher, toolDefs, diagnostics);

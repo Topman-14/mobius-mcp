@@ -19,8 +19,6 @@ class TabBuffer {
   }
 
   getSince(cursor: number, opts: { types?: EventType[]; limit?: number } = {}): BrowserEvent[] {
-    // events is seq-ascending, so binary-search the first entry past the cursor instead
-    // of scanning the whole buffer on every poll.
     let lo = 0;
     let hi = this.events.length;
     while (lo < hi) {
@@ -39,21 +37,11 @@ class TabBuffer {
   }
 }
 
-/**
- * seq is a single counter shared across all tabs' buffers (not per-tab), so events
- * from different tabs remain orderable relative to each other by seq alone.
- */
 export class EventStore {
   private buffers = new Map<string, TabBuffer>();
   private nextSeq = 1;
   private emitter = new EventEmitter();
 
-  /**
-   * `persistence` durably mirrors every mutation (see services/persistence.ts) so a
-   * crash/restart doesn't lose recent history — EventStore itself stays unaware of how.
-   * `hydrated` seeds buffers (and nextSeq) from that store's own boot-time replay, so a
-   * reconnecting tab picks up its pre-crash history instead of starting from empty.
-   */
   constructor(private persistence?: EventSink, hydrated?: Map<string, BrowserEvent[]>) {
     for (const [clientId, events] of hydrated ?? []) {
       const buffer = new TabBuffer();
@@ -82,7 +70,6 @@ export class EventStore {
     return stored;
   }
 
-  /** Fires for every event across all tabs; listeners filter by clientId/type themselves. */
   onEvent(listener: (event: BrowserEvent) => void): () => void {
     this.emitter.on("event", listener);
     return () => this.emitter.off("event", listener);

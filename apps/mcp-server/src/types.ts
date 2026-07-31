@@ -1,26 +1,20 @@
 import type { WebSocket } from "ws";
 import type { BrowserEvent, ClientInfo, EventType } from "@mobius-mcp/capture-core";
 
-// registry.ts
 export type RegisteredClient = ClientInfo & { ws: WebSocket; disconnectedAt?: number };
 
-// services/persistence.ts — implemented by EventPersistence, consumed by EventStore so
-// store.ts stays ignorant of *how* events survive a restart, only that they can.
 export interface EventSink {
   append(event: BrowserEvent): void;
   remove(clientId: string): void;
   clear(clientId: string): void;
 }
 
-// services/diagnostics.ts
 export type DiagnoseState =
   | "ready"
   | "no_client_ever_connected"
   | "client_disconnected"
   | "handshake_rejected"
   | "ws_bind_failed"
-  // Only reachable via DiagnosticsService.checkExternal (the `--health` CLI probe), which
-  // runs in a process that never bound the port itself.
   | "no_server_running"
   | "error";
 
@@ -79,9 +73,7 @@ export interface DebugSession {
 // mcpServer.ts
 export interface ToolDef {
   description: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   schema: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   handler: (args: any) => Promise<any>;
 }
 
@@ -92,6 +84,4 @@ export interface ToolContent {
   isError?: true;
 }
 
-// Return shape shared by resolveTabId/resolveCdpTab (utils/tools.ts): the resolved
-// tab's clientId, or a ready-to-return tool error when resolution failed.
 export type TabResolution = { clientId: string } | { error: ToolContent };

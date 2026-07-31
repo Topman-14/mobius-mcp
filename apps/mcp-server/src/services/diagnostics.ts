@@ -6,8 +6,6 @@ import { probeControlRequest } from "./controlClient.js";
 
 const HEALTH_CHECK_TIMEOUT_MS = 3000;
 
-// "no_server_running"/"error" only ever come from DiagnosticsService.checkExternal — the
-// in-process diagnose() below can't produce them, so its switch stays exhaustive without dummy cases.
 type InProcessState = Exclude<DiagnoseState, "no_server_running" | "error">;
 
 function basePayload(port: number, overrides: Pick<DiagnosePayload, "state" | "remediation" | "agentGuidance"> & Partial<DiagnosePayload>): DiagnosePayload {
@@ -26,8 +24,6 @@ function basePayload(port: number, overrides: Pick<DiagnosePayload, "state" | "r
 }
 
 export class DiagnosticsService {
-  /** Backs `npx mobius-mcp --health`, run from a brand-new process with no registry of its
-   * own — it probes whatever hub is on `port` over the control-request channel instead. */
   static async checkExternal(port: number): Promise<DiagnosePayload> {
     const probe = await probeControlRequest(port, "mobius_diagnose", {}, HEALTH_CHECK_TIMEOUT_MS);
 
@@ -45,8 +41,6 @@ export class DiagnosticsService {
       return basePayload(port, { state: "error", error: probe.error, remediation: [], agentGuidance: "" });
     }
 
-    // control-response forwards the tool handler's raw ToolContent shape verbatim
-    // (see wsServer.ts), so it needs unwrapping same as an MCP client would.
     try {
       const wrapped = probe.result as { content: Array<{ type: string; text: string }> };
       return JSON.parse(wrapped.content[0].text) as DiagnosePayload;
@@ -85,8 +79,6 @@ export class DiagnosticsService {
 
   diagnose(): DiagnosePayload {
     const clients = this.registry.list().filter(isTabClient);
-    // The extension's tab-independent browser-control client: when it's connected the
-    // agent can enable capture itself (open_tab/enable_capture) — no user action needed.
     const extensionConnected = this.registry.list().some((c) => !isTabClient(c));
     const { everConnected, lastClientSeenAt, lastDisconnectReason } = this.registry.getHistory();
 

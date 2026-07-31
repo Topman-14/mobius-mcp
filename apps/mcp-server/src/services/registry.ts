@@ -7,11 +7,6 @@ export class ClientRegistry {
   private clients = new Map<string, RegisteredClient>();
   private purgeTimers = new Map<string, NodeJS.Timeout>();
   private onPurge?: (clientId: string) => void;
-
-  // Process-lifetime history that survives purge — see mobius_diagnose (services/diagnostics.ts),
-  // which is the reason this exists: `list()` alone only reflects who's connected *right now*.
-  // Tab clients only (isTabClient) — otherwise the always-on browser-control client flips
-  // this true before any real tab streams.
   private everConnectedFlag = false;
   private lastSeenAt: number | undefined;
   private lastDisconnectReason: string | undefined;

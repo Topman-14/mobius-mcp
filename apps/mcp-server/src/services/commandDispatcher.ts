@@ -12,9 +12,6 @@ export class CommandDispatcher {
 
   sendCommand(clientId: string, command: string, params: unknown = {}, timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS): Promise<unknown> {
     const ws = this.registry.getWs(clientId);
-    // A grace-period client (registry keeps it around after disconnect) still has a ws
-    // reference, but sending on a non-OPEN socket is a silent no-op that would only
-    // surface as a timeout — fail fast instead.
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error(`No connected client with id ${clientId}`));
     }
@@ -33,8 +30,6 @@ export class CommandDispatcher {
     });
   }
 
-  /** Reject every in-flight command for a client the moment it disconnects, instead of
-   * leaving callers hanging until their timeout. */
   failPendingForClient(clientId: string): void {
     for (const [commandId, pending] of this.pending) {
       if (pending.clientId !== clientId) continue;
