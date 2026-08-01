@@ -74,6 +74,7 @@ export interface DebugSession {
 export interface ToolDef {
   description: string;
   schema: any;
+  parse: (args: unknown) => unknown;
   handler: (args: any) => Promise<any>;
 }
 
@@ -85,3 +86,8 @@ export interface ToolContent {
 }
 
 export type TabResolution = { clientId: string } | { error: ToolContent };
+
+export interface ObserveOptions {
+  windowMs: number;
+  types?: string[];
+}

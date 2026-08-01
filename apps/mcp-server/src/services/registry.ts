@@ -22,6 +22,7 @@ export class ClientRegistry {
     if (isTabClient(client)) {
       this.everConnectedFlag = true;
       this.lastSeenAt = Date.now();
+      this.lastDisconnectReason = undefined;
     }
   }
 
@@ -59,6 +60,16 @@ export class ClientRegistry {
 
   getWs(clientId: string): WebSocket | undefined {
     return this.clients.get(clientId)?.ws;
+  }
+
+  findByChromeTabId(chromeTabId: number): ClientInfo | undefined {
+    for (const client of this.clients.values()) {
+      if (client.disconnectedAt === undefined && client.chromeTabId === chromeTabId) {
+        const { ws: _ws, ...info } = client;
+        return info;
+      }
+    }
+    return undefined;
   }
 
   list(): ClientInfo[] {

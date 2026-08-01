@@ -1,6 +1,3 @@
-// Snapshot-scoped ref lifetime (ROADMAP.md Stage H): only the most recent snapshot's refs
-// resolve. `resolveRef` isn't called by anything yet — Stage I's action tools (click,
-// hover, ...) will be the first callers, once they exist.
 export type RefResolution = { ok: true; element: Element } | { ok: false; reason: "stale_snapshot" | "not_found" };
 
 let currentSnapshotId: string | undefined;

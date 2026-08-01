@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import { PROTOCOL_VERSION, isProtocolVersionSupported, type ClientMessage, type ControlMessage } from "@mobius-mcp/capture-core";
-import { WS_HOST } from "../data.js";
+import { KEEPALIVE_INTERVAL_MS, LOCAL_SESSION_ID, WS_HOST } from "../data.js";
+import { runInSession } from "../services/session.js";
 import type { EventStore } from "../services/store.js";
 import type { ClientRegistry } from "../services/registry.js";
 import type { CommandDispatcher } from "../services/commandDispatcher.js";
@@ -43,6 +44,11 @@ export function startWsServer(
       const clientIds = new Set<string>();
       console.error("[mobius-mcp] client connected");
 
+      const keepalive = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ version: PROTOCOL_VERSION, kind: "ping" }));
+      }, KEEPALIVE_INTERVAL_MS);
+      keepalive.unref();
+
       ws.on("message", (raw) => {
         let message: ClientMessage | ControlMessage;
         try {
@@ -63,7 +69,8 @@ export function startWsServer(
             ws.send(JSON.stringify({ version: PROTOCOL_VERSION, kind: "control-response", requestId: message.requestId, error: `Unknown tool: ${message.tool}` }));
             return;
           }
-          Promise.resolve(def.handler(message.args))
+          Promise.resolve()
+            .then(() => runInSession(message.sessionId ?? LOCAL_SESSION_ID, () => def.handler(def.parse(message.args))))
             .then((result) => {
               ws.send(JSON.stringify({ version: PROTOCOL_VERSION, kind: "control-response", requestId: message.requestId, result }));
             })
@@ -94,10 +101,14 @@ export function startWsServer(
 
         if (message.kind === "ack") {
           dispatcher.handleAck(message.commandId, message.result, message.error);
+          return;
         }
+
+        if (message.kind === "pong") return;
       });
 
       ws.on("close", () => {
+        clearInterval(keepalive);
         console.error("[mobius-mcp] client disconnected");
         for (const clientId of clientIds) {
           registry.markDisconnected(clientId);

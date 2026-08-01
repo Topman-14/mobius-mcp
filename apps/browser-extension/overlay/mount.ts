@@ -23,9 +23,9 @@ function mount(): OverlayApi {
   const hud = createHud(root);
 
   return {
-    moveCursorTo(point) {
+    moveCursorTo(point, icon) {
       cursor.show();
-      cursor.moveTo(point);
+      cursor.moveTo(point, icon);
     },
     showCursor: cursor.show,
     hideCursor: cursor.hide,
@@ -40,7 +40,7 @@ export function getOverlay(): OverlayApi {
 }
 
 window.__mobiusOverlay = {
-  moveCursorTo: (point) => getOverlay().moveCursorTo(point),
+  moveCursorTo: (point, icon) => getOverlay().moveCursorTo(point, icon),
   showCursor: () => getOverlay().showCursor(),
   hideCursor: () => getOverlay().hideCursor(),
   hudLog: (message) => getOverlay().hudLog(message),

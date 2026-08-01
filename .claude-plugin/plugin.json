@@ -1,0 +1,11 @@
+{
+  "name": "mobius-mcp",
+  "version": "1.0.2",
+  "description": "Scenario-focused skills for debugging a running web app via the mobius-mcp MCP server — dead clicks, silent API failures, contract drift, perf stakeouts, session drift, and reproducing bugs.",
+  "author": {
+    "name": "Topman-14"
+  },
+  "repository": "https://github.com/Topman-14/mobius-mcp",
+  "license": "MIT",
+  "keywords": ["browser", "debugging", "mcp", "devtools"]
+}

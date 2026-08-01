@@ -28,6 +28,8 @@ window.addEventListener("message", (message) => {
   } else if (message.data.type === "stop-dom") {
     stopDom?.();
     stopDom = null;
+  } else if (message.data.type === "expand-hud") {
+    window.__mobiusOverlay?.setHudExpanded(true);
   }
 });
 

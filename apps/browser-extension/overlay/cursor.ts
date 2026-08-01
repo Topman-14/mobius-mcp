@@ -3,14 +3,15 @@ import {
   CURSOR_MOVE_MS,
   CURSOR_COLOR,
   CURSOR_GLOW_COLOR,
-  CURSOR_SPARKLE_PATH,
+  CURSOR_ICON_PATHS,
   CURSOR_VIEW_BOX,
+  type CursorIconKey,
 } from "./data.js";
 import type { CursorPoint } from "./types.js";
 
 export interface CursorHandle {
   element: HTMLElement;
-  moveTo(point: CursorPoint): void;
+  moveTo(point: CursorPoint, icon?: CursorIconKey): void;
   show(): void;
   hide(): void;
 }
@@ -21,9 +22,12 @@ export function createCursor(root: ShadowRoot): CursorHandle {
   // alone — `drop-shadow` traces the glyph's exact silhouette, which reads as a thin halo
   // for a dense filled shape instead of a soft glow underneath it.
   element.innerHTML = `<svg viewBox="${CURSOR_VIEW_BOX}" width="${CURSOR_SIZE_PX}" height="${CURSOR_SIZE_PX}" style="position:absolute;top:0;left:0;overflow:visible">
-    <path d="${CURSOR_SPARKLE_PATH}" fill="${CURSOR_GLOW_COLOR}" style="filter:blur(6px)" opacity="0.85"/>
-    <path d="${CURSOR_SPARKLE_PATH}" fill="${CURSOR_COLOR}"/>
+    <path d="${CURSOR_ICON_PATHS.click}" fill="${CURSOR_GLOW_COLOR}" style="filter:blur(6px)" opacity="0.85"/>
+    <path d="${CURSOR_ICON_PATHS.click}" fill="${CURSOR_COLOR}"/>
   </svg>`;
+  const paths = element.querySelectorAll("path");
+  const glowPath = paths[0];
+  const solidPath = paths[1];
   Object.assign(element.style, {
     position: "fixed",
     top: "0",
@@ -40,8 +44,13 @@ export function createCursor(root: ShadowRoot): CursorHandle {
 
   return {
     element,
-    moveTo({ x, y }) {
+    moveTo({ x, y }, icon) {
       element.style.transform = `translate(${x - CURSOR_SIZE_PX / 2}px, ${y - CURSOR_SIZE_PX / 2}px)`;
+      if (icon) {
+        const d = CURSOR_ICON_PATHS[icon];
+        glowPath.setAttribute("d", d);
+        solidPath.setAttribute("d", d);
+      }
     },
     show() {
       element.style.opacity = "1";

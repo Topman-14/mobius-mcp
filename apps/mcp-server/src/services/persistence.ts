@@ -9,15 +9,27 @@ const FLUSH_INTERVAL_MS = 250;
 
 export class EventPersistence implements EventSink {
   private queues = new Map<string, Promise<void>>();
-  private pruneTimer: NodeJS.Timeout;
+  private pruneTimer: NodeJS.Timeout | undefined;
   private pendingLines = new Map<string, string[]>();
   private flushTimer: NodeJS.Timeout | undefined;
   private ready: Promise<unknown>;
+  private closed = false;
 
   constructor(private dir: string = PERSISTENCE_DIR, private ttlMs: number = PERSISTENCE_TTL_MS) {
-    this.ready = fs.mkdir(this.dir, { recursive: true }).catch(() => {});
+    this.ready = fs.mkdir(this.dir, { recursive: true, mode: 0o700 }).catch(() => {});
+    this.startPruning();
+  }
+
+  private startPruning(): void {
     this.pruneTimer = setInterval(() => void this.prune(), PERSISTENCE_PRUNE_INTERVAL_MS);
     this.pruneTimer.unref();
+  }
+
+  reopen(): void {
+    if (!this.closed) return;
+    this.closed = false;
+    this.ready = fs.mkdir(this.dir, { recursive: true, mode: 0o700 }).catch(() => {});
+    this.startPruning();
   }
 
   private fileFor(clientId: string): string {
@@ -30,6 +42,7 @@ export class EventPersistence implements EventSink {
   }
 
   append(event: BrowserEvent): void {
+    if (this.closed) return;
     let lines = this.pendingLines.get(event.clientId);
     if (!lines) {
       lines = [];
@@ -47,7 +60,7 @@ export class EventPersistence implements EventSink {
     for (const [clientId, lines] of this.pendingLines) {
       this.enqueue(clientId, async () => {
         await this.ready;
-        await fs.appendFile(this.fileFor(clientId), lines.join(""));
+        await fs.appendFile(this.fileFor(clientId), lines.join(""), { mode: 0o600 });
       });
     }
     this.pendingLines = new Map();
@@ -65,7 +78,7 @@ export class EventPersistence implements EventSink {
   }
 
   async loadAll(): Promise<Map<string, BrowserEvent[]>> {
-    await fs.mkdir(this.dir, { recursive: true });
+    await fs.mkdir(this.dir, { recursive: true, mode: 0o700 });
     const files = await fs.readdir(this.dir).catch(() => []);
     const result = new Map<string, BrowserEvent[]>();
 
@@ -103,14 +116,17 @@ export class EventPersistence implements EventSink {
       this.enqueue(clientId, async () => {
         const events = (await this.readEvents(filePath)).slice(-MAX_EVENTS_PER_TAB);
         if (events.length === 0) await fs.rm(filePath, { force: true }).catch(() => {});
-        else await fs.writeFile(filePath, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+        else await fs.writeFile(filePath, events.map((e) => JSON.stringify(e)).join("\n") + "\n", { mode: 0o600 });
       });
     }
   }
 
   close(): void {
     clearTimeout(this.flushTimer);
+    this.flushTimer = undefined;
     this.flush();
     clearInterval(this.pruneTimer);
+    this.pruneTimer = undefined;
+    this.closed = true;
   }
 }

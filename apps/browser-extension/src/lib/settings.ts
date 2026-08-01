@@ -18,7 +18,7 @@ export interface DebugSettings {
   verboseLogs: boolean;
 }
 
-export const DEFAULT_GENERAL: GeneralSettings = { notifications: true };
+export const DEFAULT_GENERAL: GeneralSettings = { notifications: false };
 export const DEFAULT_PERFORMANCE: PerformanceSettings = { bufferSize: 500, autoClearMinutes: 30 };
 export const DEFAULT_MCP: McpSettings = { port: 7331, reconnectBaseDelayMs: 500 };
 export const DEFAULT_DEBUG: DebugSettings = { verboseLogs: false };

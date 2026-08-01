@@ -2,6 +2,7 @@ export interface TabState {
   clientId: string;
   mode: "manual" | "rule";
   paused?: boolean;
+  sticky?: boolean;
 }
 
 function key(tabId: number): string {

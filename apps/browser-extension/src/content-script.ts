@@ -1,7 +1,7 @@
 import { captureOptionsSetting, privacyOptionsSetting } from "./lib/capture-options.js";
 
 const MESSAGE_SOURCE = "mobius-mcp";
-const RELAYED_COMMANDS = new Set(["stop", "start-dom", "stop-dom"]);
+const RELAYED_COMMANDS = new Set(["stop", "start-dom", "stop-dom", "expand-hud"]);
 
 window.addEventListener("message", (message) => {
   if (message.source !== window) return;

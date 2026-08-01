@@ -149,7 +149,7 @@ export class DiagnosticsService {
           ? "mobius-mcp is ready — proceed with other tools."
           : extensionConnected && (state === "no_client_ever_connected" || state === "client_disconnected")
             ? "The extension is connected but no tab is streaming. Enable one yourself: list_tabs (or open_tab) to find/create the target tab, then enable_capture with its chromeTabId — no user action is required."
-            : 'Do not call other mobius tools until state is "ready". Relay the remediation steps to the user verbatim and stop — do not retry automatically, and do not silently fall back to another browser tool.',
+            : 'Try open_tab once yourself first — it requires no user interaction and is the cheapest way to confirm whether the extension itself is actually reachable right now (this diagnose call may be stale). If open_tab also fails, that confirms there is no self-serve fix: relay the remediation steps to the user verbatim and stop there — do not retry in a loop, and do not silently fall back to another browser tool.',
     };
   }
 }

@@ -18,7 +18,7 @@ class TabBuffer {
     return this.events.filter((e) => types.includes(e.type)).slice(-limit);
   }
 
-  getSince(cursor: number, opts: { types?: EventType[]; limit?: number } = {}): BrowserEvent[] {
+  getSince(cursor: number, opts: { types?: EventType[]; limit?: number } = {}): { events: BrowserEvent[]; scannedTo: number } {
     let lo = 0;
     let hi = this.events.length;
     while (lo < hi) {
@@ -26,10 +26,13 @@ class TabBuffer {
       if (this.events[mid].seq > cursor) hi = mid;
       else lo = mid + 1;
     }
-    let filtered = this.events.slice(lo);
-    if (opts.types) filtered = filtered.filter((e) => opts.types!.includes(e.type));
-    if (opts.limit) filtered = filtered.slice(0, opts.limit);
-    return filtered;
+    const window = this.events.slice(lo);
+    let events = opts.types ? window.filter((e) => opts.types!.includes(e.type)) : window;
+    if (opts.limit && events.length > opts.limit) {
+      events = events.slice(0, opts.limit);
+      return { events, scannedTo: events[events.length - 1].seq };
+    }
+    return { events, scannedTo: window.length > 0 ? window[window.length - 1].seq : cursor };
   }
 
   clear(): void {
@@ -80,9 +83,9 @@ export class EventStore {
   }
 
   getSince(clientId: string, cursor: number, opts: { types?: EventType[]; limit?: number } = {}): { events: BrowserEvent[]; cursor: number } {
-    const events = this.buffers.get(clientId)?.getSince(cursor, opts) ?? [];
-    const newCursor = events.length > 0 ? events[events.length - 1].seq : cursor;
-    return { events, cursor: newCursor };
+    const result = this.buffers.get(clientId)?.getSince(cursor, opts);
+    if (!result) return { events: [], cursor };
+    return { events: result.events, cursor: result.scannedTo };
   }
 
   currentSeq(): number {

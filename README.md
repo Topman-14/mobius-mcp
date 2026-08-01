@@ -136,6 +136,28 @@ The extension never captures anything by default. Click its toolbar icon and hit
 
 An agent can also start capture itself, without a toolbar click, via `open_tab` (opens a new tab) or `enable_capture` (an already-open tab's Chrome tab id, from `list_tabs`) — consent still comes from the human having installed and granted the extension its permissions, just not per tab.
 
+An enabled tab keeps the same `tabId` across navigation, along with its event history, so a handle an agent obtained before a page load stays valid after it. Use `clear_logs` if you want a clean baseline after navigating.
+
+### Privacy defaults
+
+Nothing is captured until a tab is enabled, and what is captured is redacted before it ever leaves the browser. Out of the box: `authorization`, `cookie`, `set-cookie`, `proxy-authorization` and `x-api-key` header *values* are replaced with `[redacted]` (the header name stays visible, so "was this request authenticated?" is still answerable), JSON body keys shaped like secrets (`password`, `token`, `api_key`, `ssn`, card numbers, …) are masked at any depth, and JWT-shaped strings are masked anywhere they appear. Email masking is available but off by default. All of it is configurable per-item on the extension's settings page.
+
+Captured events are also written to disk so history survives an MCP server restart (see `CONSOLE_STREAM_PERSISTENCE_DIR` above). Those files hold redacted event data including request/response bodies; the directory is created `0700` and the files `0600`, and everything in it is pruned after `CONSOLE_STREAM_PERSISTENCE_TTL_MS` (1 hour by default).
+
+### Extension permissions
+
+| Permission | Why |
+| --- | --- |
+| `scripting` | Inject the capture scripts into an enabled tab |
+| `storage` | Settings, auto-enable rules, and per-tab capture state |
+| `tabs` | Read tab URLs/titles for `list_tabs`, and open/switch/reload them |
+| `webNavigation` | Detect real page loads, to re-inject capture and emit navigation events |
+| `debugger` | Chrome DevTools Protocol: screenshots, snapshots, profiling, `evaluate_js`, and trusted input events. This is why Chrome shows a "being debugged" bar on driven tabs |
+| `alarms` | Reconnect backstop — an idle MV3 service worker can be shut down, and an alarm is the only thing that can start it again |
+| `<all_urls>` | Capture is opt-in per tab, but the tab could be any origin — a local dev server, a staging deploy, or production |
+
+`notifications` is optional and only requested if you turn on error notifications in settings.
+
 ## MCP tools
 
 * `mobius_diagnose` — check whether mobius-mcp is usable right now: connection state, ever-connected history, and ordered remediation steps. Never fails, never requires a tab. Call this first in a session, and again after any connection-related tool error — see [Troubleshooting](#troubleshooting).
@@ -147,12 +169,13 @@ An agent can also start capture itself, without a toolbar click, via `open_tab` 
 * `get_connected_tabs`
 * `get_capture_settings` — which event categories (console/errors/network/navigation/dom) a connected tab is actively capturing, so an empty result from another tool can be distinguished from "that category is off"
 * `set_active_tab`
-* `open_tab` — open a new tab (optionally to a URL) and bring it to the foreground; extension only
+* `open_tab` — open a new tab (optionally to a URL), bring it to the foreground, and start streaming it immediately; extension only
 * `enable_capture` — start capture on an already-open tab by its Chrome tab id, without a toolbar click; extension only
 * `navigate_to`, `switch_tab`, `reload_tab` — browser control (extension only)
 * `list_tabs` — every open tab, not just capture-enabled ones (requires an extension connected somewhere)
 * `snapshot_page` — a pruned, indexed tree of the elements on a tab that matter for driving it (interactive/labelled/text-bearing), each with a `ref`, role, accessible name, and bounding box; extension only, requires CDP
-* `click`, `hover` — real trusted CDP input events addressed by a `snapshot_page` `ref` or a CSS selector; extension only, requires CDP
+* `click`, `hover`, `type_text`, `press_key`, `scroll_to`, `scroll_by`, `select_option`, `set_checkbox` — real trusted CDP input events addressed by a `snapshot_page` `ref` or a CSS selector; each moves the on-page cursor overlay with its own icon; all accept `observe: { windowMs, types? }` to return what the app did afterward alongside the action's own result; extension only, requires CDP
+* `run_sequence` — run a list of the above (plus `navigate_to`/`wait_for_*`) against one tab in a single round trip, stopping at the first failure
 * `get_job_status`, `get_job_result`, `cancel_job` — for longer-running operations (recordings, profiling)
 * `start_debug_session`, `end_debug_session` — record a time-ordered timeline of console/network/navigation/DOM events instead of correlating separate snapshots by hand (single-tab, doesn't survive a full-page navigation)
 * `wait_for_console_error`, `wait_for_navigation`, `wait_for_request`, `wait_for_element` — block (with timeout) until a condition occurs instead of polling `get_logs_since` in a loop
@@ -181,6 +204,10 @@ Prints the same diagnostic payload as JSON and exits `0` if `state` is `"ready"`
 
 - **Testing coverage.** It works reliably across the setups it's been developed and dogfooded on, but hasn't yet been exercised across the full range of OSes, Chrome versions, and MCP clients in the wild — treat it as early-stage software, and please report anything unexpected.
 - **Extension/server version skew.** Chrome Web Store review can take some time to approve a new extension release, so an older extension build can still be running against a newer `mobius-mcp` server for a while after a protocol-breaking change ships. `mobius_diagnose`'s `handshake_rejected` state (see [Troubleshooting](#troubleshooting)) is the symptom to watch for — a fix to smooth over this gap is in progress.
+- **The local WebSocket is unauthenticated.** Anything that can open a socket to `127.0.0.1:7331` can drive the tools, including `evaluate_js`. In practice that means any other process running as you, and any page loaded over plain `http` (WebSocket connections aren't subject to same-origin policy; only `https` pages are blocked from `ws://` by mixed-content rules). This is the standard localhost-dev-tool trust model, but it is a real boundary worth knowing about — a dedicated auth design is planned.
+- **A page can influence what it reports about itself.** Capture works by patching `console.*`/`fetch` inside the page's own JavaScript realm, which is what makes it work at all — but it also means a hostile or compromised page can suppress events, or emit fabricated ones. Treat captured output from untrusted pages as untrusted data. The server tells agents this explicitly in its MCP instructions.
+- **Actions dispatch even when the target is covered.** `click`/`hover`/`type_text` hit-test before dispatching and report `hitTest: "blocked"` with the element that will actually receive the input, but they still send it — they report the problem rather than refusing.
+- **The debugger banner.** Any CDP-backed tool attaches `chrome.debugger`, so Chrome shows its "being debugged" bar on that tab. The debugger detaches after five idle minutes.
 
 ## Client capabilities
 
@@ -206,7 +233,16 @@ See [Roadmap](#roadmap) for what "planned" maps to by stage.
 
 ## Skills
 
-`skills/<name>/SKILL.md` — six scenario-focused skills, each a workflow for a specific bug class that's hard to catch by reading source alone but tractable with live browser data:
+mobius-mcp is agent-agnostic — it works with any MCP-speaking client (Claude Code, Codex, Kimi, etc.), not just one. `skills/<name>/SKILL.md` holds six scenario-focused workflows, each for a bug class that's hard to catch by reading source alone but tractable with live browser data. Every client gets these the portable way: **each skill is also exposed as an MCP prompt of the same name** (`mobius-dead-click`, `mobius-silent-api-failure`, ...) — no plugin system required, works with any MCP client that supports prompts.
+
+Claude Code users additionally get a native-feeling shortcut, since this repo also doubles as an installable Claude Code plugin (`.claude-plugin/plugin.json`):
+
+```
+/plugin marketplace add Topman-14/mobius-mcp
+/plugin install mobius-mcp@mobius-mcp
+```
+
+That's a convenience on top, not the primary path — the MCP prompts are what makes the skills available everywhere.
 
 | Skill | Catches |
 | --- | --- |

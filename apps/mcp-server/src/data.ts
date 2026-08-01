@@ -36,7 +36,12 @@ export const TRUNCATABLE_EVENT_FIELDS: ReadonlyArray<readonly [field: string, fl
 ];
 
 export const DEFAULT_COMMAND_TIMEOUT_MS = 10_000;
+export const JOB_RETENTION_MS = 30 * 60_000;
+export const KEEPALIVE_INTERVAL_MS = 20_000;
+export const LOCAL_SESSION_ID = "local";
+export const RECENTLY_CONNECTED_MS = 3_000;
 export const CONTROL_REQUEST_TIMEOUT_MS = 15_000;
+export const HUB_ELECTION_JITTER_MS = 400;
 
 export const CONSOLE_TYPES: EventType[] = ["console.log", "console.info", "console.warn"];
 export const ERROR_TYPES: EventType[] = ["console.error", "window.onerror", "unhandledrejection"];

@@ -1,9 +1,10 @@
-import type { BrowserEvent, CaptureSettings } from "@mobius-mcp/capture-core";
+import type { BrowserEvent, CaptureSettings, EventType } from "@mobius-mcp/capture-core";
 import type { ClientRegistry } from "../services/registry.js";
 import type { CommandDispatcher } from "../services/commandDispatcher.js";
-import type { TabResolution, ToolContent } from "../types.js";
+import type { EventStore } from "../services/store.js";
+import type { ObserveOptions, TabResolution, ToolContent } from "../types.js";
 import { errorMessage } from "./errors.js";
-import { BROWSER_CONTROL_CAPABILITY, isTabClient } from "../data.js";
+import { BROWSER_CONTROL_CAPABILITY, RECENTLY_CONNECTED_MS, isTabClient } from "../data.js";
 
 export function toolResult(data: unknown): ToolContent {
   return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
@@ -22,13 +23,21 @@ export function toolResultWithCaptureHint(
   category: keyof CaptureSettings,
 ): ToolContent {
   if (events.length > 0) return toolResult(events);
-  const captureSettings = registry.get(clientId)?.captureSettings;
+  const client = registry.get(clientId);
+  const captureSettings = client?.captureSettings;
   const enabled = captureSettings?.[category];
   if (enabled === false) {
     return toolResult({
       events: [],
       captureEnabled: false,
       hint: `The "${category}" capture category is off for this tab, which is why this is empty — not necessarily that nothing happened. Call get_capture_settings to confirm, or ask the user to enable it in the extension options.`,
+    });
+  }
+  if (client && Date.now() - client.connectedAt < RECENTLY_CONNECTED_MS) {
+    return toolResult({
+      events: [],
+      recentlyConnected: true,
+      hint: `This tab connected ${Date.now() - client.connectedAt}ms ago — this may be empty because capture started after earlier page activity already happened, not because nothing happened. If you need a clean read, reload_tab and retry.`,
     });
   }
   return toolResult(events);
@@ -50,10 +59,27 @@ export function resolveBrowserControlClient(registry: ClientRegistry): TabResolu
 
 /** Resolves which tab a tool call should target: explicit param wins, then the
  * session's active tab, then auto-select if exactly one tab is connected. */
-export function resolveTabId(registry: ClientRegistry, activeTabId: string | undefined, explicitTabId?: string): TabResolution {
-  if (explicitTabId) return { clientId: explicitTabId };
-
+export function resolveTabId(registry: ClientRegistry, activeTabId: string | undefined, explicitTabId?: string, explicitChromeTabId?: number): TabResolution {
   const connected = registry.list().filter(isTabClient);
+
+  if (explicitTabId) {
+    if (connected.some((c) => c.clientId === explicitTabId)) return { clientId: explicitTabId };
+    if (explicitChromeTabId !== undefined) {
+      const byChromeTabId = registry.findByChromeTabId(explicitChromeTabId);
+      if (byChromeTabId) return { clientId: byChromeTabId.clientId };
+    }
+    return {
+      error: toolError(
+        `No connected tab with id ${explicitTabId}. It may have been closed, or capture was turned off for it. Call get_connected_tabs for the current list, or mobius_diagnose if none are connected — do not treat this as "the app produced no events".`,
+      ),
+    };
+  }
+
+  if (explicitChromeTabId !== undefined) {
+    const byChromeTabId = registry.findByChromeTabId(explicitChromeTabId);
+    if (byChromeTabId) return { clientId: byChromeTabId.clientId };
+  }
+
   if (connected.length === 0) {
     return { error: toolError('No tabs connected. Call mobius_diagnose for the reason and remediation steps — do not guess.') };
   }
@@ -77,8 +103,8 @@ export function requireCdp(registry: ClientRegistry, clientId: string): ToolCont
 }
 
 /** resolveTabId + requireCdp combined, for the CDP-only capture/eval/profiling tools. */
-export function resolveCdpTab(registry: ClientRegistry, activeTabId: string | undefined, explicitTabId?: string): TabResolution {
-  const resolved = resolveTabId(registry, activeTabId, explicitTabId);
+export function resolveCdpTab(registry: ClientRegistry, activeTabId: string | undefined, explicitTabId?: string, explicitChromeTabId?: number): TabResolution {
+  const resolved = resolveTabId(registry, activeTabId, explicitTabId, explicitChromeTabId);
   if ("error" in resolved) return resolved;
   const cdpError = requireCdp(registry, resolved.clientId);
   return cdpError ? { error: cdpError } : resolved;
@@ -95,6 +121,26 @@ export async function runCommand(
 ): Promise<ToolContent> {
   try {
     return toolResult(await dispatcher.sendCommand(clientId, command, params, timeoutMs));
+  } catch (err) {
+    return toolError(errorMessage(err));
+  }
+}
+
+export async function runCommandWithObserve(
+  dispatcher: CommandDispatcher,
+  store: EventStore,
+  clientId: string,
+  command: string,
+  params: unknown = {},
+  observe?: ObserveOptions,
+): Promise<ToolContent> {
+  const startSeq = store.currentSeq();
+  try {
+    const result = await dispatcher.sendCommand(clientId, command, params);
+    if (!observe) return toolResult(result);
+    await new Promise((resolve) => setTimeout(resolve, observe.windowMs));
+    const { events } = store.getSince(clientId, startSeq, { types: observe.types as EventType[] | undefined });
+    return toolResult({ result, observed: events });
   } catch (err) {
     return toolError(errorMessage(err));
   }
