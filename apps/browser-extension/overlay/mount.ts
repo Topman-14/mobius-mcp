@@ -24,8 +24,8 @@ function mount(): OverlayApi {
 
   return {
     moveCursorTo(point, icon) {
-      cursor.show();
       cursor.moveTo(point, icon);
+      cursor.show();
     },
     showCursor: cursor.show,
     hideCursor: cursor.hide,

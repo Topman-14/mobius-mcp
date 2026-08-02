@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type ClientMessage, type CommandMessage, type ServerMessage, type CapturedEvent, type PageSnapshot } from "@mobius-mcp/capture-core";
+import { PROTOCOL_VERSION, type ClientMessage, type CommandMessage, type ServerMessage, type CapturedEvent, type PageSnapshot, type SnapshotOptions, type FindResult } from "@mobius-mcp/capture-core";
 import { findMatchingRule, getRules } from "./lib/rules.js";
 import { getTabState, setTabState, setPaused, clearTabState, getTabIdForClient, getAllTabStates, type TabState } from "./lib/tab-state.js";
 import { sendCdp, detach, findRequestId } from "./lib/cdp.js";
@@ -280,12 +280,23 @@ async function runCommand(message: CommandMessage): Promise<unknown> {
     case "capture_dom":
       return captureDomTab(tabId);
     case "snapshot_page": {
+      const { viewportOnly, roles, maxElements } = message.params as SnapshotOptions;
       const result = (await sendCdp(tabId, "Runtime.evaluate", {
-        expression: "window.__mobiusSnapshot.capture()",
+        expression: `window.__mobiusSnapshot.capture(${JSON.stringify({ viewportOnly, roles, maxElements })})`,
         returnByValue: true,
       })) as { result: { value?: PageSnapshot }; exceptionDetails?: CdpExceptionDetails };
       if (result.exceptionDetails) throw new Error(exceptionMessage(result.exceptionDetails));
       if (!result.result.value) throw new Error("snapshot_page: page script did not return a snapshot (was the tab reloaded after capture was enabled?)");
+      return result.result.value;
+    }
+    case "find_elements": {
+      const { query, limit } = message.params as { query: string; limit?: number };
+      const result = (await sendCdp(tabId, "Runtime.evaluate", {
+        expression: `window.__mobiusSnapshot.find(${JSON.stringify(query)}, ${JSON.stringify(limit)})`,
+        returnByValue: true,
+      })) as { result: { value?: FindResult }; exceptionDetails?: CdpExceptionDetails };
+      if (result.exceptionDetails) throw new Error(exceptionMessage(result.exceptionDetails));
+      if (!result.result.value) throw new Error("find: page script did not return a result (was the tab reloaded after capture was enabled?)");
       return result.result.value;
     }
     case "capture_accessibility_tree": {

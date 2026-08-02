@@ -11,8 +11,11 @@ export type {
   PageSnapshot,
   RedactionOptions,
   ServerMessage,
+  FindMatch,
+  FindResult,
   SnapshotBox,
   SnapshotElement,
+  SnapshotOptions,
 } from "./types.ts";
 export { DEFAULT_REDACTED_HEADER_NAMES, DEFAULT_REDACTION, PROTOCOL_VERSION } from "./data.ts";
 export {

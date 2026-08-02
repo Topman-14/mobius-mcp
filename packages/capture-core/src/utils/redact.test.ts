@@ -50,4 +50,33 @@ describe("redactText", () => {
   it("leaves emails alone under the default options", () => {
     expect(redactText("mail a@b.com", DEFAULT_REDACTION)).toContain("a@b.com");
   });
+
+  it.each([
+    ["hostnames", "https://fonts.googleapis.com/css2?family=Roboto"],
+    ["property chains", "document.documentElement.classList.add('dark')"],
+    ["namespace URLs", "http://www.w3.org/2000/svg"],
+    ["version strings", "vitest 3.2.4 installed"],
+    ["SVG path data", "M16.41 5.41L15 4l-8 8 8 8 1.41-1.41L9.83 12"],
+  ])("does not mistake %s for a JWT", (_label, text) => {
+    expect(redactText(text, DEFAULT_REDACTION)).toBe(text);
+  });
+
+  it("still masks a JWT embedded in surrounding text", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+    expect(redactText(`Bearer ${jwt} done`, DEFAULT_REDACTION)).toBe("Bearer [redacted-jwt] done");
+  });
+});
+
+describe("redactBodyText JWT handling", () => {
+  it("masks a JWT held under a non-sensitive key", () => {
+    const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+    const result = JSON.parse(redactBodyText(JSON.stringify({ data: jwt }), "application/json", DEFAULT_REDACTION));
+
+    expect(result.data).toBe("[redacted-jwt]");
+  });
+
+  it("leaves hostnames in a JSON body intact", () => {
+    const body = JSON.stringify({ src: "https://fonts.googleapis.com/css2" });
+    expect(JSON.parse(redactBodyText(body, "application/json", DEFAULT_REDACTION)).src).toBe("https://fonts.googleapis.com/css2");
+  });
 });

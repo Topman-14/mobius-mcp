@@ -33,8 +33,32 @@ export function createHud(root: ShadowRoot): HudHandle {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    gap: "8px",
+    flexShrink: "0",
   } satisfies Partial<CSSStyleDeclaration>);
-  badge.innerHTML = MOBIUS_LOGO_SVG;
+
+  const mark = document.createElement("div");
+  Object.assign(mark.style, {
+    width: `${HUD_COLLAPSED_SIZE_PX}px`,
+    height: `${HUD_COLLAPSED_SIZE_PX}px`,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: "0",
+  } satisfies Partial<CSSStyleDeclaration>);
+  mark.innerHTML = MOBIUS_LOGO_SVG;
+
+  const wordmark = document.createElement("span");
+  wordmark.textContent = "Mobius";
+  Object.assign(wordmark.style, {
+    display: "none",
+    color: CURSOR_GLOW_COLOR,
+    fontSize: "13px",
+    fontWeight: "600",
+    letterSpacing: "0.04em",
+  } satisfies Partial<CSSStyleDeclaration>);
+
+  badge.append(mark, wordmark);
 
   const log = document.createElement("div");
   Object.assign(log.style, {
@@ -46,6 +70,16 @@ export function createHud(root: ShadowRoot): HudHandle {
     overflowY: "auto",
   } satisfies Partial<CSSStyleDeclaration>);
 
+  const empty = document.createElement("div");
+  empty.textContent = "Waiting for activity — clicks, typing and navigation driven by mobius will appear here.";
+  Object.assign(empty.style, {
+    color: "#8a8a8a",
+    fontSize: "11px",
+    lineHeight: "1.5",
+    fontStyle: "italic",
+  } satisfies Partial<CSSStyleDeclaration>);
+  log.appendChild(empty);
+
   container.append(badge, log);
   root.appendChild(container);
 
@@ -55,6 +89,9 @@ export function createHud(root: ShadowRoot): HudHandle {
     expanded = next;
     container.style.width = expanded ? `${HUD_EXPANDED_WIDTH_PX}px` : `${HUD_COLLAPSED_SIZE_PX}px`;
     container.style.height = expanded ? `${HUD_EXPANDED_HEIGHT_PX}px` : `${HUD_COLLAPSED_SIZE_PX}px`;
+    badge.style.width = expanded ? "100%" : `${HUD_COLLAPSED_SIZE_PX}px`;
+    badge.style.justifyContent = expanded ? "flex-start" : "center";
+    wordmark.style.display = expanded ? "block" : "none";
     log.style.display = expanded ? "flex" : "none";
   }
 
@@ -63,6 +100,7 @@ export function createHud(root: ShadowRoot): HudHandle {
   return {
     element: container,
     log(message: string) {
+      empty.remove();
       const entry = document.createElement("div");
       entry.style.color = CURSOR_GLOW_COLOR;
       entry.textContent = `${new Date().toLocaleTimeString()} — ${message}`;

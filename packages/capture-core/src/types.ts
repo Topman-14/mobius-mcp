@@ -202,9 +202,35 @@ export interface SnapshotElement {
   children?: SnapshotElement[];
 }
 
+export interface SnapshotOptions {
+  viewportOnly?: boolean;
+  roles?: string[];
+  maxElements?: number;
+}
+
 export interface PageSnapshot {
   snapshotId: string;
   url: string;
   title: string;
   elements: SnapshotElement[];
+  truncated?: boolean;
+  totalQualified?: number;
+}
+
+export interface FindMatch {
+  ref: string;
+  role: string;
+  name: string;
+  tag: string;
+  box: SnapshotBox;
+  score: number;
+}
+
+export interface FindResult {
+  snapshotId: string;
+  query: string;
+  url: string;
+  title: string;
+  matches: FindMatch[];
+  totalMatched: number;
 }

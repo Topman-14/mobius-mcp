@@ -1,8 +1,10 @@
-// Cap on how many elements a single snapshot_page call will index — a runaway page (huge
-// table, infinite-scroll feed) shouldn't turn one tool call into megabytes of tree.
-export const MAX_SNAPSHOT_ELEMENTS = 500;
+export const MAX_SNAPSHOT_ELEMENTS = 150;
 
 export const ACCESSIBLE_NAME_MAX_CHARS = 200;
+
+export const MAX_FIND_RESULTS = 20;
+
+export const FIND_MIN_SCORE = 1;
 
 export const INTERACTIVE_TAGS = new Set(["A", "BUTTON", "INPUT", "SELECT", "TEXTAREA", "SUMMARY", "OPTION"]);
 
@@ -36,4 +38,18 @@ export const ROLE_BY_TAG: Record<string, string> = {
   H4: "heading",
   H5: "heading",
   H6: "heading",
+};
+
+export const FIND_STOP_WORDS = new Set(["a", "an", "the", "of", "for", "to", "in", "on", "with", "that", "this", "any", "some", "my"]);
+
+export const FIND_ROLE_SYNONYMS: Record<string, string[]> = {
+  button: ["button", "btn", "submit", "cta"],
+  link: ["link", "anchor"],
+  textbox: ["field", "input", "textbox", "box", "bar", "search", "email", "password", "textarea"],
+  combobox: ["dropdown", "select", "combobox", "picker"],
+  checkbox: ["checkbox", "check", "toggle"],
+  radio: ["radio"],
+  tab: ["tab"],
+  heading: ["heading", "title", "header"],
+  img: ["image", "img", "picture", "photo", "icon", "logo"],
 };

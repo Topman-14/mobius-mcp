@@ -26,9 +26,13 @@ import {
   toolError,
   toolResult,
   toolResultWithCaptureHint,
+  unwrapToolContent,
 } from "../utils/tools.js";
 
 const RUN_SEQUENCE_ALLOWED_TOOLS = new Set([
+  "find",
+  "snapshot_page",
+  "take_screenshot",
   "click",
   "hover",
   "type_text",
@@ -301,13 +305,35 @@ export function createMcpServer(
   );
 
   server.tool(
-    "snapshot_page",
-    "Get a pruned, indexed tree of the elements on a tab that matter for driving it — interactive, labelled, or text-bearing elements only, each with a `ref`, role, accessible name, and bounding box. This is how to find something to click/hover/type into; use it instead of capture_dom when the question is \"what's on this page and how do I act on it\". `ref`s are scoped to this snapshot's `snapshotId` and go stale the moment the page changes — call this again after any action, don't reuse refs from an earlier snapshot. Requires the browser extension.",
-    { tabId: z.string().optional(), chromeTabId: z.number().int().optional() },
-    async ({ tabId, chromeTabId }) => {
+    "find",
+    "Find elements on a tab by natural-language description — \"newsletter signup field\", \"accept cookies button\", \"link to pricing\". Returns up to `limit` ranked matches, each with a `ref` usable by click/hover/type_text exactly like a snapshot_page ref, plus `totalMatched` so you can tell a confident single hit from an ambiguous one. Prefer this over snapshot_page when you already know what you're looking for: it returns a handful of candidates instead of the whole page, and it does not blow the token budget on a content-heavy site. Fall back to snapshot_page when you need to survey what's on the page rather than locate something specific. Scoring is lexical over accessible names, roles and tags — describe the element the way its label reads. Requires the browser extension.",
+    {
+      tabId: z.string().optional(),
+      chromeTabId: z.number().int().optional(),
+      query: z.string().min(1),
+      limit: z.number().int().positive().max(50).optional(),
+    },
+    async ({ tabId, chromeTabId, query, limit }) => {
       const resolved = resolveCdpTab(registry, activeTabId(), tabId, chromeTabId);
       if ("error" in resolved) return resolved.error;
-      return runCommand(dispatcher, resolved.clientId, "snapshot_page");
+      return runCommand(dispatcher, resolved.clientId, "find_elements", { query, limit });
+    },
+  );
+
+  server.tool(
+    "snapshot_page",
+    "Get a pruned, indexed tree of the elements on a tab that matter for driving it — interactive, labelled, or text-bearing elements only, each with a `ref`, role, accessible name, and bounding box. This is how to find something to click/hover/type into; use it instead of capture_dom when the question is \"what's on this page and how do I act on it\". A whole-page snapshot of a content-heavy site can be large: narrow it with `viewportOnly` (only what's currently on screen), `roles` (e.g. [\"button\",\"link\",\"textbox\"]), or `maxElements`. `truncated: true` in the result means the cap was hit and the tree is incomplete — re-run with a narrower filter rather than assuming the missing elements don't exist. `ref`s stay valid until the element is detached or the page navigates, so they survive clicks and scrolling on the same page; re-snapshot after a navigation or a re-render that replaces the elements you care about. Requires the browser extension.",
+    {
+      tabId: z.string().optional(),
+      chromeTabId: z.number().int().optional(),
+      viewportOnly: z.boolean().optional(),
+      roles: z.array(z.string()).optional(),
+      maxElements: z.number().int().positive().max(500).optional(),
+    },
+    async ({ tabId, chromeTabId, viewportOnly, roles, maxElements }) => {
+      const resolved = resolveCdpTab(registry, activeTabId(), tabId, chromeTabId);
+      if ("error" in resolved) return resolved.error;
+      return runCommand(dispatcher, resolved.clientId, "snapshot_page", { viewportOnly, roles, maxElements });
     },
   );
 
@@ -336,7 +362,7 @@ export function createMcpServer(
     async ({ tabId, chromeTabId, ref, selector, button, clickCount, observe }) => {
       const resolved = resolveCdpTab(registry, activeTabId(), tabId, chromeTabId);
       if ("error" in resolved) return resolved.error;
-      return runCommandWithObserve(dispatcher, store, resolved.clientId, "click", { ref, selector, button, clickCount }, observe);
+      return runCommandWithObserve(dispatcher, store, registry, resolved.clientId, "click", { ref, selector, button, clickCount }, observe);
     },
   );
 
@@ -347,7 +373,7 @@ export function createMcpServer(
     async ({ tabId, chromeTabId, ref, selector, observe }) => {
       const resolved = resolveCdpTab(registry, activeTabId(), tabId, chromeTabId);
       if ("error" in resolved) return resolved.error;
-      return runCommandWithObserve(dispatcher, store, resolved.clientId, "hover", { ref, selector }, observe);
+      return runCommandWithObserve(dispatcher, store, registry, resolved.clientId, "hover", { ref, selector }, observe);
     },
   );
 
@@ -365,7 +391,7 @@ export function createMcpServer(
     async ({ tabId, chromeTabId, ref, selector, text, clear, observe }) => {
       const resolved = resolveCdpTab(registry, activeTabId(), tabId, chromeTabId);
       if ("error" in resolved) return resolved.error;
-      return runCommandWithObserve(dispatcher, store, resolved.clientId, "type_text", { ref, selector, text, clear }, observe);
+      return runCommandWithObserve(dispatcher, store, registry, resolved.clientId, "type_text", { ref, selector, text, clear }, observe);
     },
   );
 
@@ -383,7 +409,7 @@ export function createMcpServer(
     async ({ tabId, chromeTabId, ref, selector, key, modifiers, observe }) => {
       const resolved = resolveCdpTab(registry, activeTabId(), tabId, chromeTabId);
       if ("error" in resolved) return resolved.error;
-      return runCommandWithObserve(dispatcher, store, resolved.clientId, "press_key", { ref, selector, key, modifiers }, observe);
+      return runCommandWithObserve(dispatcher, store, registry, resolved.clientId, "press_key", { ref, selector, key, modifiers }, observe);
     },
   );
 
@@ -394,7 +420,7 @@ export function createMcpServer(
     async ({ tabId, chromeTabId, ref, selector, observe }) => {
       const resolved = resolveCdpTab(registry, activeTabId(), tabId, chromeTabId);
       if ("error" in resolved) return resolved.error;
-      return runCommandWithObserve(dispatcher, store, resolved.clientId, "scroll_to", { ref, selector }, observe);
+      return runCommandWithObserve(dispatcher, store, registry, resolved.clientId, "scroll_to", { ref, selector }, observe);
     },
   );
 
@@ -405,7 +431,7 @@ export function createMcpServer(
     async ({ tabId, chromeTabId, dx, dy, observe }) => {
       const resolved = resolveCdpTab(registry, activeTabId(), tabId, chromeTabId);
       if ("error" in resolved) return resolved.error;
-      return runCommandWithObserve(dispatcher, store, resolved.clientId, "scroll_by", { dx, dy }, observe);
+      return runCommandWithObserve(dispatcher, store, registry, resolved.clientId, "scroll_by", { dx, dy }, observe);
     },
   );
 
@@ -416,7 +442,7 @@ export function createMcpServer(
     async ({ tabId, chromeTabId, ref, selector, value, observe }) => {
       const resolved = resolveCdpTab(registry, activeTabId(), tabId, chromeTabId);
       if ("error" in resolved) return resolved.error;
-      return runCommandWithObserve(dispatcher, store, resolved.clientId, "select_option", { ref, selector, value }, observe);
+      return runCommandWithObserve(dispatcher, store, registry, resolved.clientId, "select_option", { ref, selector, value }, observe);
     },
   );
 
@@ -427,7 +453,7 @@ export function createMcpServer(
     async ({ tabId, chromeTabId, ref, selector, checked, observe }) => {
       const resolved = resolveCdpTab(registry, activeTabId(), tabId, chromeTabId);
       if ("error" in resolved) return resolved.error;
-      return runCommandWithObserve(dispatcher, store, resolved.clientId, "set_checkbox", { ref, selector, checked }, observe);
+      return runCommandWithObserve(dispatcher, store, registry, resolved.clientId, "set_checkbox", { ref, selector, checked }, observe);
     },
   );
 
@@ -583,7 +609,7 @@ export function createMcpServer(
 
   server.tool(
     "run_sequence",
-    `Run a list of action tools against one tab in a single round trip, stopping at the first failed step and returning whatever completed. Each step is { tool, args }; tool must be one of: ${[...RUN_SEQUENCE_ALLOWED_TOOLS].join(", ")}. tabId/chromeTabId given here apply to every step that doesn't set its own. Produces a debugging transcript (each step's result, including any observe data), not just a click log.`,
+    `Run a list of action tools against one tab in a single round trip, stopping at the first failed step and returning whatever completed. Each step is { tool, args }; tool must be one of: ${[...RUN_SEQUENCE_ALLOWED_TOOLS].join(", ")}. tabId/chromeTabId given here apply to every step that doesn't set its own. Produces a debugging transcript (each step's result, including any observe data), not just a click log. Steps cannot consume each other's output — you author the whole list up front — so address elements by CSS \`selector\` rather than \`ref\` when a step follows a navigation or a re-render, since selectors resolve at step time while refs go stale. Including \`find\`/\`snapshot_page\` as a step won't give the later steps those refs, but it does return them in the same round trip for your next call. \`take_screenshot\` steps return their image alongside the transcript, in step order.`,
     {
       tabId: z.string().optional(),
       chromeTabId: z.number().int().optional(),
@@ -594,23 +620,38 @@ export function createMcpServer(
     },
     async ({ tabId, chromeTabId, steps }) => {
       const results: unknown[] = [];
+      const images: ToolContent["content"] = [];
+      const transcript = (completed: boolean): ToolContent => {
+        const result = toolResult({ completed, steps: results });
+        return { ...result, content: [...result.content, ...images] };
+      };
+
       for (const step of steps) {
         const def = RUN_SEQUENCE_ALLOWED_TOOLS.has(step.tool) ? toolDefs.get(step.tool) : undefined;
         if (!def) {
-          results.push({ tool: step.tool, result: toolError(`"${step.tool}" isn't a run_sequence-eligible tool.`) });
-          return toolResult({ completed: false, steps: results });
+          results.push({ tool: step.tool, error: `"${step.tool}" isn't a run_sequence-eligible tool.` });
+          return transcript(false);
         }
         let stepResult: ToolContent;
         try {
           stepResult = (await def.handler(def.parse({ tabId, chromeTabId, ...step.args }))) as ToolContent;
         } catch (err) {
-          results.push({ tool: step.tool, result: toolError(`"${step.tool}" got invalid arguments: ${errorMessage(err)}`) });
-          return toolResult({ completed: false, steps: results });
+          results.push({ tool: step.tool, error: `"${step.tool}" got invalid arguments: ${errorMessage(err)}` });
+          return transcript(false);
         }
-        results.push({ tool: step.tool, result: stepResult });
-        if (stepResult.isError) return toolResult({ completed: false, steps: results });
+        if (stepResult.isError) {
+          results.push({ tool: step.tool, error: unwrapToolContent(stepResult) });
+          return transcript(false);
+        }
+        const stepImages = stepResult.content.filter((block) => block.type === "image");
+        if (stepImages.length > 0) {
+          images.push(...stepImages);
+          results.push({ tool: step.tool, result: { image: true, position: images.length } });
+        } else {
+          results.push({ tool: step.tool, result: unwrapToolContent(stepResult) });
+        }
       }
-      return toolResult({ completed: true, steps: results });
+      return transcript(true);
     },
   );
 
