@@ -9,6 +9,10 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "watch": "tsc -b tsconfig.json --watch --preserveWatchOutput"
+    "watch": "tsc -b tsconfig.json --watch --preserveWatchOutput",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.7"
   }
 }

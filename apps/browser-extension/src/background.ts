@@ -1,8 +1,9 @@
-import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage, type CapturedEvent, type PageSnapshot } from "@mobius-mcp/capture-core";
+import { PROTOCOL_VERSION, type ClientMessage, type CommandMessage, type ServerMessage, type CapturedEvent, type PageSnapshot, type SnapshotOptions, type FindResult } from "@mobius-mcp/capture-core";
 import { findMatchingRule, getRules } from "./lib/rules.js";
 import { getTabState, setTabState, setPaused, clearTabState, getTabIdForClient, getAllTabStates, type TabState } from "./lib/tab-state.js";
 import { sendCdp, detach, findRequestId } from "./lib/cdp.js";
-import { CURSOR_MOVE_MS } from "../overlay/data.js";
+import { CURSOR_MOVE_MS, type CursorIconKey } from "./modules/overlay/data.js";
+import type { HitTest, PreparedTarget } from "./lib/actions/types.js";
 import {
   setConnectionStatus,
   recordEvent,
@@ -93,6 +94,10 @@ async function connect() {
     } catch {
       return;
     }
+    if (message.kind === "ping") {
+      send({ version: PROTOCOL_VERSION, kind: "pong" });
+      return;
+    }
     if (message.kind !== "command") return;
 
     try {
@@ -102,6 +107,17 @@ async function connect() {
       send({ version: PROTOCOL_VERSION, kind: "ack", commandId: message.commandId, error: err instanceof Error ? err.message : String(err) });
     }
   });
+}
+
+interface CdpExceptionDetails {
+  text: string;
+  exception?: { description?: string; value?: unknown };
+}
+
+function exceptionMessage(details: CdpExceptionDetails): string {
+  if (details.exception?.description) return details.exception.description;
+  if (details.exception?.value !== undefined) return String(details.exception.value);
+  return details.text;
 }
 
 async function screenshotTab(tabId: number): Promise<{ format: "png"; dataBase64: string }> {
@@ -117,18 +133,60 @@ async function captureDomTab(tabId: number): Promise<{ html: string }> {
   return { html: result.result.value };
 }
 
-async function prepareActionTarget(tabId: number, target: { ref?: string; selector?: string }, verb: string): Promise<{ x: number; y: number }> {
+async function prepareActionTarget(tabId: number, target: { ref?: string; selector?: string }, verb: string, icon?: CursorIconKey): Promise<PreparedTarget> {
   const result = (await sendCdp(tabId, "Runtime.evaluate", {
-    expression: `window.__mobiusActions.prepareTarget(${JSON.stringify(target)}, ${JSON.stringify(verb)})`,
+    expression: `window.__mobiusActions.prepareTarget(${JSON.stringify(target)}, ${JSON.stringify(verb)}, ${JSON.stringify(icon)})`,
     returnByValue: true,
-  })) as { result: { value?: { x: number; y: number } }; exceptionDetails?: { text: string } };
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+  })) as { result: { value?: PreparedTarget }; exceptionDetails?: CdpExceptionDetails };
+  if (result.exceptionDetails) throw new Error(exceptionMessage(result.exceptionDetails));
   if (!result.result.value) throw new Error(`${verb}: page script did not return a target`);
   await new Promise((resolve) => setTimeout(resolve, CURSOR_MOVE_MS));
   return result.result.value;
 }
 
-async function runCommand(message: ServerMessage): Promise<unknown> {
+function hitTestResult(hitTest: HitTest): Record<string, unknown> {
+  if (hitTest.ok) return { hitTest: "ok" };
+  const explanation =
+    hitTest.reason === "covered"
+      ? `${hitTest.blockedBy} is painted on top of the target and receives the input instead.`
+      : hitTest.reason === "pointer_events"
+        ? "The target has pointer-events: none and cannot receive input."
+        : "The target's centre is outside the viewport.";
+  return {
+    hitTest: "blocked",
+    hitTestReason: hitTest.reason,
+    hitTestBlockedBy: hitTest.blockedBy,
+    warning: `${explanation} The input was still dispatched — if the page did not react, this is why, not a missing handler.`,
+  };
+}
+
+const MODIFIER_BITS: Record<string, number> = { alt: 1, ctrl: 2, meta: 4, shift: 8 };
+
+let selectAllModifier: Promise<"meta" | "ctrl"> | undefined;
+
+function getSelectAllModifier(): Promise<"meta" | "ctrl"> {
+  selectAllModifier ??= chrome.runtime.getPlatformInfo().then((info) => (info.os === "mac" ? "meta" : "ctrl"));
+  return selectAllModifier;
+}
+
+function modifiersToBitmask(modifiers?: string[]): number {
+  return (modifiers ?? []).reduce((acc, m) => acc | (MODIFIER_BITS[m] ?? 0), 0);
+}
+
+async function dispatchKey(tabId: number, key: string, modifiers?: string[]): Promise<void> {
+  const params: Record<string, unknown> = { modifiers: modifiersToBitmask(modifiers), key };
+  if (key.length === 1) params.text = key;
+  await sendCdp(tabId, "Input.dispatchKeyEvent", { type: "keyDown", ...params });
+  await sendCdp(tabId, "Input.dispatchKeyEvent", { type: "keyUp", ...params });
+}
+
+async function dispatchClick(tabId: number, x: number, y: number): Promise<void> {
+  await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+}
+
+async function runCommand(message: CommandMessage): Promise<unknown> {
   if (message.command === "list_tabs") {
     const tabs = await chrome.tabs.query({});
     return tabs.map((t) => ({ tabId: t.id, url: t.url, title: t.title, active: t.active }));
@@ -138,7 +196,11 @@ async function runCommand(message: ServerMessage): Promise<unknown> {
     const { url } = message.params as { url?: string };
     const tab = await chrome.tabs.create({ url, active: true });
     if (tab.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true });
-    return { chromeTabId: tab.id };
+    if (tab.id === undefined) throw new Error("Failed to create tab.");
+
+    const clientId = await enableTab(tab.id, "manual", true);
+    if (!clientId) return { chromeTabId: tab.id, clientId: undefined };
+    return { chromeTabId: tab.id, clientId, tabId: clientId };
   }
 
   if (message.command === "enable_capture") {
@@ -148,7 +210,7 @@ async function runCommand(message: ServerMessage): Promise<unknown> {
     await chrome.tabs.update(chromeTabId, { active: true });
     if (tab.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true });
 
-    const clientId = await enableTab(chromeTabId, "manual");
+    const clientId = await enableTab(chromeTabId, "manual", true);
     if (!clientId) throw new Error(`Failed to enable capture on tab ${chromeTabId}.`);
     return { clientId, tabId: clientId };
   }
@@ -218,12 +280,23 @@ async function runCommand(message: ServerMessage): Promise<unknown> {
     case "capture_dom":
       return captureDomTab(tabId);
     case "snapshot_page": {
+      const { viewportOnly, roles, maxElements } = message.params as SnapshotOptions;
       const result = (await sendCdp(tabId, "Runtime.evaluate", {
-        expression: "window.__mobiusSnapshot.capture()",
+        expression: `window.__mobiusSnapshot.capture(${JSON.stringify({ viewportOnly, roles, maxElements })})`,
         returnByValue: true,
-      })) as { result: { value?: PageSnapshot }; exceptionDetails?: { text: string } };
-      if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+      })) as { result: { value?: PageSnapshot }; exceptionDetails?: CdpExceptionDetails };
+      if (result.exceptionDetails) throw new Error(exceptionMessage(result.exceptionDetails));
       if (!result.result.value) throw new Error("snapshot_page: page script did not return a snapshot (was the tab reloaded after capture was enabled?)");
+      return result.result.value;
+    }
+    case "find_elements": {
+      const { query, limit } = message.params as { query: string; limit?: number };
+      const result = (await sendCdp(tabId, "Runtime.evaluate", {
+        expression: `window.__mobiusSnapshot.find(${JSON.stringify(query)}, ${JSON.stringify(limit)})`,
+        returnByValue: true,
+      })) as { result: { value?: FindResult }; exceptionDetails?: CdpExceptionDetails };
+      if (result.exceptionDetails) throw new Error(exceptionMessage(result.exceptionDetails));
+      if (!result.result.value) throw new Error("find: page script did not return a result (was the tab reloaded after capture was enabled?)");
       return result.result.value;
     }
     case "capture_accessibility_tree": {
@@ -231,17 +304,80 @@ async function runCommand(message: ServerMessage): Promise<unknown> {
     }
     case "click": {
       const { ref, selector, button = "left", clickCount = 1 } = message.params as { ref?: string; selector?: string; button?: "left" | "right" | "middle"; clickCount?: number };
-      const { x, y } = await prepareActionTarget(tabId, { ref, selector }, "clicking");
+      const { x, y, hitTest } = await prepareActionTarget(tabId, { ref, selector }, "clicking", "click");
       await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
       await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mousePressed", x, y, button, clickCount });
       await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount });
-      return { clicked: true };
+      return { clicked: true, ...hitTestResult(hitTest) };
     }
     case "hover": {
       const { ref, selector } = message.params as { ref?: string; selector?: string };
-      const { x, y } = await prepareActionTarget(tabId, { ref, selector }, "hovering over");
+      const { x, y, hitTest } = await prepareActionTarget(tabId, { ref, selector }, "hovering over", "hover");
       await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-      return { hovered: true };
+      return { hovered: true, ...hitTestResult(hitTest) };
+    }
+    case "type_text": {
+      const { ref, selector, text, clear } = message.params as { ref?: string; selector?: string; text: string; clear?: boolean };
+      const { x, y, hitTest } = await prepareActionTarget(tabId, { ref, selector }, "typing into", "type");
+      await dispatchClick(tabId, x, y);
+      if (clear) {
+        await dispatchKey(tabId, "a", [await getSelectAllModifier()]);
+        await dispatchKey(tabId, "Backspace");
+      }
+      await sendCdp(tabId, "Input.insertText", { text });
+      return { typed: true, ...hitTestResult(hitTest) };
+    }
+    case "press_key": {
+      const { ref, selector, key, modifiers } = message.params as { ref?: string; selector?: string; key: string; modifiers?: string[] };
+      let focusHitTest: HitTest = { ok: true };
+      if (ref || selector) {
+        const { x, y, hitTest } = await prepareActionTarget(tabId, { ref, selector }, "pressing key on", "key");
+        focusHitTest = hitTest;
+        await dispatchClick(tabId, x, y);
+      }
+      await dispatchKey(tabId, key, modifiers);
+      return { pressed: true, ...hitTestResult(focusHitTest) };
+    }
+    case "scroll_to": {
+      const { ref, selector } = message.params as { ref?: string; selector?: string };
+      await prepareActionTarget(tabId, { ref, selector }, "scrolling to", "scroll");
+      return { scrolled: true };
+    }
+    case "scroll_by": {
+      const { dx, dy } = message.params as { dx: number; dy: number };
+      const metrics = (await sendCdp(tabId, "Page.getLayoutMetrics")) as {
+        layoutViewport: { clientWidth: number; clientHeight: number };
+      };
+      const x = Math.round(metrics.layoutViewport.clientWidth / 2);
+      const y = Math.round(metrics.layoutViewport.clientHeight / 2);
+      await sendCdp(tabId, "Runtime.evaluate", {
+        expression: `window.__mobiusOverlay?.moveCursorTo({x:${x},y:${y}}, "scroll"); window.__mobiusOverlay?.hudLog(${JSON.stringify(`scrolling by (${dx}, ${dy})`)});`,
+      });
+      await new Promise((resolve) => setTimeout(resolve, CURSOR_MOVE_MS));
+      await sendCdp(tabId, "Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: dx, deltaY: dy });
+      return { scrolled: true };
+    }
+    case "select_option": {
+      const { ref, selector, value } = message.params as { ref?: string; selector?: string; value: string };
+      const result = (await sendCdp(tabId, "Runtime.evaluate", {
+        expression: `window.__mobiusActions.setSelectValue(${JSON.stringify({ ref, selector })}, ${JSON.stringify(value)})`,
+        returnByValue: true,
+      })) as { result: { value?: PreparedTarget }; exceptionDetails?: CdpExceptionDetails };
+      if (result.exceptionDetails) throw new Error(exceptionMessage(result.exceptionDetails));
+      await new Promise((resolve) => setTimeout(resolve, CURSOR_MOVE_MS));
+      return { selected: true };
+    }
+    case "set_checkbox": {
+      const { ref, selector, checked } = message.params as { ref?: string; selector?: string; checked: boolean };
+      const { x, y, hitTest } = await prepareActionTarget(tabId, { ref, selector }, "setting checkbox on", "check");
+      const current = (await sendCdp(tabId, "Runtime.evaluate", {
+        expression: `window.__mobiusActions.isChecked(${JSON.stringify({ ref, selector })})`,
+        returnByValue: true,
+      })) as { result: { value?: boolean }; exceptionDetails?: CdpExceptionDetails };
+      if (current.exceptionDetails) throw new Error(exceptionMessage(current.exceptionDetails));
+      const changed = current.result.value !== checked;
+      if (changed) await dispatchClick(tabId, x, y);
+      return { checked, changed, ...(changed ? hitTestResult(hitTest) : { hitTest: "skipped" }) };
     }
     case "evaluate_js": {
       const { expression } = message.params as { expression: string };
@@ -249,8 +385,8 @@ async function runCommand(message: ServerMessage): Promise<unknown> {
         expression,
         returnByValue: true,
         awaitPromise: true,
-      })) as { result: { value?: unknown; description?: string }; exceptionDetails?: { text: string } };
-      if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+      })) as { result: { value?: unknown; description?: string }; exceptionDetails?: CdpExceptionDetails };
+      if (result.exceptionDetails) throw new Error(exceptionMessage(result.exceptionDetails));
       return { value: result.result.value ?? result.result.description };
     }
     case "start_cpu_profile": {
@@ -307,6 +443,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+const RECONNECT_ALARM_NAME = "mobius-mcp/reconnect-check";
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === RECONNECT_ALARM_NAME && (!ws || ws.readyState !== WebSocket.OPEN)) connect();
+});
+chrome.alarms.create(RECONNECT_ALARM_NAME, { periodInMinutes: 1 });
+
 let settingsReady = bootSettings();
 connect();
 resumeCaptureAfterReload();
@@ -329,22 +472,18 @@ async function resumeCaptureAfterReload(): Promise<void> {
       await clearTabLiveState(tabId);
       continue;
     }
-    await enableTab(tabId, state.mode);
+    await enableTab(tabId, state.mode, state.sticky);
     if (state.paused) await setPaused(tabId, true);
   }
 }
 
-async function enableTab(tabId: number, mode: TabState["mode"]): Promise<string | undefined> {
+async function enableTab(tabId: number, mode: TabState["mode"], sticky?: boolean): Promise<string | undefined> {
   const tab = await chrome.tabs.get(tabId);
   if (!tab.url) return undefined;
 
-  // Re-enabling an already-enabled tab (e.g. resumeCaptureAfterReload racing a rule
-  // match) would otherwise orphan the old clientId's server-side buffer.
   const existing = await getTabState(tabId);
-  if (existing) send({ version: PROTOCOL_VERSION, kind: "bye", clientId: existing.clientId });
-
-  const clientId = crypto.randomUUID();
-  await setTabState(tabId, { clientId, mode });
+  const clientId = existing?.clientId ?? crypto.randomUUID();
+  await setTabState(tabId, { clientId, mode, sticky: sticky ?? existing?.sticky });
 
   await chrome.scripting.executeScript({ target: { tabId }, files: ["src/content-script.js"], injectImmediately: true });
   await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", files: ["src/injected.js"], injectImmediately: true });
@@ -360,11 +499,13 @@ async function enableTab(tabId: number, mode: TabState["mode"]): Promise<string 
       title: tab.title,
       capabilities: ["cdp"],
       captureSettings: { console: capture.console, errors: capture.errors, network: capture.network, navigation: true, dom: capture.dom },
+      chromeTabId: tabId,
     },
   });
 
   console.log(`[mobius-mcp] enabled tab ${tabId} (${mode}): ${tab.url}`);
   await startRecording(tabId);
+  chrome.tabs.sendMessage(tabId, { type: "mobius-mcp/command", command: "expand-hud" }).catch(() => {});
 
   return clientId;
 }
@@ -404,8 +545,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       send({ version: PROTOCOL_VERSION, kind: "event", clientId: state.clientId, event });
       const bucket = await recordEvent(tabId, event);
       await settingsReady;
-      if (bucket === "errors" && notificationsEnabled) {
-
+      if (bucket === "errors" && notificationsEnabled && chrome.notifications) {
         chrome.notifications.getPermissionLevel((level) => {
           if (level !== "granted") {
             console.warn(
@@ -453,7 +593,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await disableTab(message.tabId);
         sendResponse({ state: null });
       } else {
-        await enableTab(message.tabId, "manual");
+        await enableTab(message.tabId, "manual", true);
         sendResponse({ state: await getTabState(message.tabId) });
       }
     });
@@ -479,14 +619,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "mobius-mcp/export-diagnostics") {
     getAllLiveState().then((tabs) => {
-      const diagnostics = {
+      sendResponse({
         exportedAt: new Date().toISOString(),
         connection: { status: connectionStatus, lastEventAt },
         queuedMessages: queue.length,
         tabs,
-      };
-      const url = "data:application/json," + encodeURIComponent(JSON.stringify(diagnostics, null, 2));
-      chrome.downloads.download({ url, filename: `mobius-mcp-diagnostics-${Date.now()}.json` }, () => sendResponse({ downloaded: true }));
+      });
     });
     return true;
   }
@@ -515,14 +653,15 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   const fromUrl = lastKnownUrl.get(details.tabId);
   lastKnownUrl.set(details.tabId, details.url);
   const previousState = await getTabState(details.tabId);
-  if (previousState) send({ version: PROTOCOL_VERSION, kind: "bye", clientId: previousState.clientId });
-  await clearTabState(details.tabId);
 
   const rules = await getRules();
   const rule = findMatchingRule(details.url, rules);
-  if (!rule) return;
+  if (!rule && !previousState?.sticky) {
+    if (previousState) await disableTab(details.tabId);
+    return;
+  }
 
-  const clientId = await enableTab(details.tabId, "rule");
+  const clientId = rule ? await enableTab(details.tabId, "rule") : await enableTab(details.tabId, "manual", true);
   if (!clientId) return;
 
   send({

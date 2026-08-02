@@ -9,7 +9,7 @@ import { DiagnosticsService } from "./services/diagnostics.js";
 import { startWsServer } from "./transports/wsServer.js";
 import { createMcpServer, createFollowerMcpServer, connectStdio } from "./transports/mcpServer.js";
 import { ControlClient } from "./services/controlClient.js";
-import { WS_PORT_DEFAULT } from "./data.js";
+import { WS_HOST, WS_PORT_DEFAULT } from "./data.js";
 
 const port = Number(process.env.CONSOLE_STREAM_PORT) || WS_PORT_DEFAULT;
 
@@ -37,8 +37,6 @@ const {
   toolDefs
 } = createMcpServer(store, registry, dispatcher, jobs, debugSessions, diagnostics);
 
-// Only one mobius-mcp process per machine can bind the WS port, every other process will run as a follower here.
-
 let mcpServer = server;
 try {
   await startWsServer(port, store, registry, dispatcher, toolDefs, diagnostics);
@@ -46,8 +44,33 @@ try {
   if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") throw err;
   console.error(`[mobius-mcp] port ${port} already in use by another mobius-mcp process — running in follower mode, forwarding tool calls to it`);
   persistence.close();
+
   const controlClient = new ControlClient(port);
-  mcpServer = createFollowerMcpServer(toolDefs, (tool, args) => controlClient.invoke(tool, args));
+  let promoted = false;
+  const invoke = (tool: string, args: unknown): Promise<unknown> => {
+    if (promoted) {
+      const def = toolDefs.get(tool);
+      if (!def) return Promise.reject(new Error(`Unknown tool: ${tool}`));
+      return Promise.resolve(def.handler(args));
+    }
+    return controlClient.invoke(tool, args);
+  };
+  mcpServer = createFollowerMcpServer(toolDefs, invoke);
+
+  controlClient.setOnHubLost(async () => {
+    try {
+      await startWsServer(port, store, registry, dispatcher, toolDefs, diagnostics);
+    } catch (bindErr) {
+      if ((bindErr as NodeJS.ErrnoException).code === "EADDRINUSE") return false;
+      console.error(`[mobius-mcp] follower promotion attempt failed unexpectedly:`, bindErr);
+      return false;
+    }
+    persistence.reopen();
+    console.error(`[mobius-mcp] promoted from follower to hub on ws://${WS_HOST}:${port}`);
+    controlClient.stop();
+    promoted = true;
+    return true;
+  });
 }
 
 await connectStdio(mcpServer);

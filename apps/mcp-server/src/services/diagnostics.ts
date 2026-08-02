@@ -6,8 +6,6 @@ import { probeControlRequest } from "./controlClient.js";
 
 const HEALTH_CHECK_TIMEOUT_MS = 3000;
 
-// "no_server_running"/"error" only ever come from DiagnosticsService.checkExternal — the
-// in-process diagnose() below can't produce them, so its switch stays exhaustive without dummy cases.
 type InProcessState = Exclude<DiagnoseState, "no_server_running" | "error">;
 
 function basePayload(port: number, overrides: Pick<DiagnosePayload, "state" | "remediation" | "agentGuidance"> & Partial<DiagnosePayload>): DiagnosePayload {
@@ -26,8 +24,6 @@ function basePayload(port: number, overrides: Pick<DiagnosePayload, "state" | "r
 }
 
 export class DiagnosticsService {
-  /** Backs `npx mobius-mcp --health`, run from a brand-new process with no registry of its
-   * own — it probes whatever hub is on `port` over the control-request channel instead. */
   static async checkExternal(port: number): Promise<DiagnosePayload> {
     const probe = await probeControlRequest(port, "mobius_diagnose", {}, HEALTH_CHECK_TIMEOUT_MS);
 
@@ -45,8 +41,6 @@ export class DiagnosticsService {
       return basePayload(port, { state: "error", error: probe.error, remediation: [], agentGuidance: "" });
     }
 
-    // control-response forwards the tool handler's raw ToolContent shape verbatim
-    // (see wsServer.ts), so it needs unwrapping same as an MCP client would.
     try {
       const wrapped = probe.result as { content: Array<{ type: string; text: string }> };
       return JSON.parse(wrapped.content[0].text) as DiagnosePayload;
@@ -85,8 +79,6 @@ export class DiagnosticsService {
 
   diagnose(): DiagnosePayload {
     const clients = this.registry.list().filter(isTabClient);
-    // The extension's tab-independent browser-control client: when it's connected the
-    // agent can enable capture itself (open_tab/enable_capture) — no user action needed.
     const extensionConnected = this.registry.list().some((c) => !isTabClient(c));
     const { everConnected, lastClientSeenAt, lastDisconnectReason } = this.registry.getHistory();
 
@@ -113,8 +105,9 @@ export class DiagnosticsService {
         break;
       case "handshake_rejected":
         remediation = [
-          { step: "A client attempted to connect but its protocol version did not match this server's — most likely an outdated browser extension or server build.", userAction: false },
-          { step: "Update the mobius-mcp browser extension to the latest version.", userAction: true },
+          { step: "A client attempted to connect but its protocol version did not match this server's, and no tab is streaming — the rejected client may not be the extension at all.", userAction: false },
+          { step: "Click the mobius-mcp toolbar icon on the target tab and toggle capture on.", userAction: true },
+          { step: "If capture still does not come up, update the mobius-mcp browser extension to the latest version.", userAction: true },
           { step: "If the extension is already current, update the server: npx -y mobius-mcp@latest.", userAction: true },
         ];
         break;
@@ -157,7 +150,9 @@ export class DiagnosticsService {
           ? "mobius-mcp is ready — proceed with other tools."
           : extensionConnected && (state === "no_client_ever_connected" || state === "client_disconnected")
             ? "The extension is connected but no tab is streaming. Enable one yourself: list_tabs (or open_tab) to find/create the target tab, then enable_capture with its chromeTabId — no user action is required."
-            : 'Do not call other mobius tools until state is "ready". Relay the remediation steps to the user verbatim and stop — do not retry automatically, and do not silently fall back to another browser tool.',
+            : state === "handshake_rejected"
+              ? "A rejected handshake here does not prove the extension is outdated — it may have come from any client, including another mobius-mcp process. Ask the user to enable capture manually: click the mobius-mcp toolbar icon on the target tab and toggle it on. That normally brings the connection up. Then call mobius_diagnose again; only if it still reports handshake_rejected should you relay the version-update steps."
+              :'Try open_tab once yourself first — it requires no user interaction and is the cheapest way to confirm whether the extension itself is actually reachable right now (this diagnose call may be stale). If open_tab also fails, that confirms there is no self-serve fix: relay the remediation steps to the user verbatim and stop there — do not retry in a loop, and do not silently fall back to another browser tool.',
     };
   }
 }

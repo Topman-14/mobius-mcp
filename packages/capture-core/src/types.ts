@@ -100,11 +100,12 @@ export interface ClientInfo {
   capabilities: string[];
   connectedAt: number;
   captureSettings?: CaptureSettings;
+  chromeTabId?: number;
 }
 
 // Wire protocol — the message envelope exchanged over the WebSocket between a
 // browser client and the server, plus the version gate on that envelope's shape.
-export type ProtocolVersion = 2;
+export type ProtocolVersion = 3;
 
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
 // A BrowserEvent as the client sends it: id/seq/clientId aren't known yet — the
@@ -114,28 +115,37 @@ export type CapturedEvent = DistributiveOmit<BrowserEvent, "id" | "seq" | "clien
 type Versioned<T> = T & { version: ProtocolVersion };
 
 // Client -> server: hello (connect), event (a captured BrowserEvent), bye
-// (disconnect), ack (reply to a "command" the server sent).
+// (disconnect), ack (reply to a "command" the server sent), pong (reply to the
+// server's keepalive ping).
 export type ClientMessage = Versioned<
   | { kind: "hello"; client: Omit<ClientInfo, "connectedAt"> }
   | { kind: "event"; clientId: string; event: CapturedEvent }
   | { kind: "bye"; clientId: string }
   | { kind: "ack"; commandId: string; result?: unknown; error?: string }
+  | { kind: "pong" }
 >;
 
 // Server -> client: an RPC-style command (navigate, screenshot, evaluate_js, ...),
-// matched back to its caller by commandId when the client's ack arrives.
-export type ServerMessage = Versioned<{
-  kind: "command";
-  commandId: string;
-  clientId: string;
-  command: string;
-  params: unknown;
-}>;
+// matched back to its caller by commandId when the client's ack arrives; ping is the
+// keepalive that resets an MV3 service worker's idle timer (a WebSocket protocol-level
+// ping frame is handled by the network stack and does not count as extension activity).
+export type ServerMessage = Versioned<
+  | {
+      kind: "command";
+      commandId: string;
+      clientId: string;
+      command: string;
+      params: unknown;
+    }
+  | { kind: "ping" }
+>;
+
+export type CommandMessage = Extract<ServerMessage, { kind: "command" }>;
 
 // Follower -> hub only (see CommandDispatcher/ControlClient): forwards an MCP tool
 // call to whichever process actually holds the WebSocket port.
 export type ControlMessage = Versioned<
-  | { kind: "control-request"; requestId: string; tool: string; args: unknown }
+  | { kind: "control-request"; requestId: string; sessionId: string; tool: string; args: unknown }
   | { kind: "control-response"; requestId: string; result?: unknown; error?: string }
 >;
 
@@ -192,9 +202,35 @@ export interface SnapshotElement {
   children?: SnapshotElement[];
 }
 
+export interface SnapshotOptions {
+  viewportOnly?: boolean;
+  roles?: string[];
+  maxElements?: number;
+}
+
 export interface PageSnapshot {
   snapshotId: string;
   url: string;
   title: string;
   elements: SnapshotElement[];
+  truncated?: boolean;
+  totalQualified?: number;
+}
+
+export interface FindMatch {
+  ref: string;
+  role: string;
+  name: string;
+  tag: string;
+  box: SnapshotBox;
+  score: number;
+}
+
+export interface FindResult {
+  snapshotId: string;
+  query: string;
+  url: string;
+  title: string;
+  matches: FindMatch[];
+  totalMatched: number;
 }

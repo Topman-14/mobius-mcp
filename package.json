@@ -6,7 +6,7 @@
   "author": "Topman-14",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Topman-14/console-stream-mcp.git"
+    "url": "https://github.com/Topman-14/mobius-mcp.git"
   },
   "workspaces": [
     "apps/*",

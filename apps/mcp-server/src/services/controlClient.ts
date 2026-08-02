@@ -1,16 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import { PROTOCOL_VERSION, type ControlMessage } from "@mobius-mcp/capture-core";
-import { CONTROL_REQUEST_TIMEOUT_MS, WS_HOST } from "../data.js";
+import { CONTROL_REQUEST_TIMEOUT_MS, HUB_ELECTION_JITTER_MS, WS_HOST } from "../data.js";
 
 export type ControlProbeResult = { ok: true; result: unknown } | { ok: false; reason: "unreachable" | "error"; error?: string };
 
-/** A single bounded control-request, used by DiagnosticsService.checkExternal — unlike
- * ControlClient below, this doesn't stay connected or retry; it answers within
- * `timeoutMs` or reports unreachable. */
 export function probeControlRequest(port: number, tool: string, args: unknown, timeoutMs: number): Promise<ControlProbeResult> {
   return new Promise((resolve) => {
     const requestId = randomUUID();
+    const sessionId = randomUUID();
     let settled = false;
     const settle = (result: ControlProbeResult) => {
       if (settled) return;
@@ -24,7 +22,7 @@ export function probeControlRequest(port: number, tool: string, args: unknown, t
     const timer = setTimeout(() => settle({ ok: false, reason: "unreachable" }), timeoutMs);
 
     ws.on("open", () => {
-      const message: ControlMessage = { version: PROTOCOL_VERSION, kind: "control-request", requestId, tool, args };
+      const message: ControlMessage = { version: PROTOCOL_VERSION, kind: "control-request", requestId, sessionId, tool, args };
       ws.send(JSON.stringify(message));
     });
     ws.on("message", (raw) => {
@@ -42,15 +40,28 @@ export function probeControlRequest(port: number, tool: string, args: unknown, t
   });
 }
 
-/** Used by a follower process (see index.ts) to forward MCP tool calls to whichever
- * process actually won the WS port bind and is acting as the hub. */
 export class ControlClient {
   private ws: WebSocket | null = null;
   private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private retryDelay = 500;
+  private reconnectTimer: NodeJS.Timeout | undefined;
+  private stopped = false;
+  private onHubLost?: () => Promise<boolean>;
+  private readonly sessionId = randomUUID();
 
   constructor(private port: number) {
     this.connect();
+  }
+
+  setOnHubLost(callback: () => Promise<boolean>): void {
+    this.onHubLost = callback;
+  }
+
+  stop(): void {
+    this.stopped = true;
+    clearTimeout(this.reconnectTimer);
+    this.ws?.removeAllListeners();
+    this.ws?.close();
   }
 
   private connect(): void {
@@ -78,12 +89,26 @@ export class ControlClient {
     });
 
     ws.on("close", () => {
-      console.error(`[mobius-mcp] follower mode: lost connection to hub, retrying in ${this.retryDelay}ms`);
-      setTimeout(() => this.connect(), this.retryDelay);
+      if (this.stopped) return;
+      this.failPending(new Error("mobius-mcp hub connection lost while the request was in flight"));
+      const delay = this.retryDelay + Math.floor(Math.random() * HUB_ELECTION_JITTER_MS);
+      console.error(`[mobius-mcp] follower mode: lost connection to hub, attempting promotion in ${delay}ms`);
+      this.reconnectTimer = setTimeout(async () => {
+        if (this.stopped) return;
+        if (await this.onHubLost?.()) return;
+        this.connect();
+      }, delay);
       this.retryDelay = Math.min(this.retryDelay * 2, 10_000);
     });
 
     ws.on("error", () => ws.close());
+  }
+
+  private failPending(error: Error): void {
+    for (const [requestId, pending] of this.pending) {
+      this.pending.delete(requestId);
+      pending.reject(error);
+    }
   }
 
   invoke(tool: string, args: unknown): Promise<unknown> {
@@ -106,7 +131,7 @@ export class ControlClient {
         },
       });
 
-      const message: ControlMessage = { version: PROTOCOL_VERSION, kind: "control-request", requestId, tool, args };
+      const message: ControlMessage = { version: PROTOCOL_VERSION, kind: "control-request", requestId, sessionId: this.sessionId, tool, args };
       const send = () => this.ws?.send(JSON.stringify(message));
       if (this.ws && this.ws.readyState === WebSocket.OPEN) send();
       else this.ws?.once("open", send);

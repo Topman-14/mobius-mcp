@@ -1,0 +1,11 @@
+{
+  "name": "mobius-mcp",
+  "version": "1.0.2",
+  "description": "Scenario-focused skills for driving and debugging a running web app via the mobius-mcp MCP server — broken flows, QA walkthroughs, bug repros, perf stakeouts, and page audits.",
+  "author": {
+    "name": "Topman-14"
+  },
+  "repository": "https://github.com/Topman-14/mobius-mcp",
+  "license": "MIT",
+  "keywords": ["browser", "debugging", "mcp", "devtools"]
+}

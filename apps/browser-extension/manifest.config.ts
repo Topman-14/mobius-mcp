@@ -3,10 +3,11 @@ import { defineManifest } from "@crxjs/vite-plugin";
 export default defineManifest({
   manifest_version: 3,
   name: "Mobius",
-  version: "1.0.1",
+  version: "1.0.2",
   description:
     "Streams browser console/network events to a local mobius-mcp server for AI coding agents. Click the icon to enable capture on a tab.",
-  permissions: ["scripting", "storage", "tabs", "webNavigation", "debugger", "notifications", "downloads"],
+  permissions: ["scripting", "storage", "tabs", "webNavigation", "debugger", "alarms"],
+  optional_permissions: ["notifications"],
   // Granted once at install so agent-driven enable_capture never blocks on a runtime
   // permission prompt (chrome.permissions.request needs a user gesture the background
   // worker can't produce) — capture itself still only starts per tab, on demand.

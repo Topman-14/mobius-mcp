@@ -28,7 +28,6 @@ export class DebugSessionManager {
 
     if (session.domCapture) {
       await this.dispatcher.sendCommand(session.clientId, "stop_dom_capture", {}).catch(() => {
-        // tab may have navigated away already, nothing left to stop
       });
     }
 

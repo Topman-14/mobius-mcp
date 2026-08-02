@@ -32,14 +32,22 @@ export function Options() {
     refreshRules();
   }, []);
 
-  // "notifications" is a required manifest permission (always granted at install — there's
-  // no runtime prompt for it), so the only way to tell the user why they see nothing is to
-  // check Chrome's own per-extension setting and surface it here. Re-check whenever the
-  // toggle turns on, since the user may have just fixed it in chrome://settings and come back.
+  // Chrome can still suppress notifications at the browser/OS level after the extension
+  // permission is granted, and that's invisible unless we surface it here.
   useEffect(() => {
     if (!general?.notifications) return;
     chrome.notifications.getPermissionLevel((level) => setNotificationPermission(level));
   }, [general?.notifications]);
+
+  const toggleNotifications = async (enabled: boolean) => {
+    if (!enabled) {
+      await updateGeneral({ notifications: false });
+      await chrome.permissions.remove({ permissions: ["notifications"] });
+      return;
+    }
+    if (!(await chrome.permissions.request({ permissions: ["notifications"] }))) return;
+    await updateGeneral({ notifications: true });
+  };
 
   const updateCapture = (key: keyof CaptureOptions, value: boolean) => updateCaptureOptions({ [key]: value } as Partial<CaptureOptions>);
   const updatePrivacy = (key: keyof PrivacyOptions, value: boolean) => updatePrivacyOptions({ [key]: value } as Partial<PrivacyOptions>);
@@ -57,7 +65,13 @@ export function Options() {
 
   const exportDiagnostics = async () => {
     setExporting(true);
-    await chrome.runtime.sendMessage({ type: "mobius-mcp/export-diagnostics" });
+    const diagnostics = await chrome.runtime.sendMessage({ type: "mobius-mcp/export-diagnostics" });
+    const url = URL.createObjectURL(new Blob([JSON.stringify(diagnostics, null, 2)], { type: "application/json" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `mobius-mcp-diagnostics-${Date.now()}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
     setExporting(false);
   };
 
@@ -109,7 +123,7 @@ export function Options() {
                 label="Error notifications"
                 description="Show a system notification when a runtime error is captured"
                 checked={general?.notifications ?? false}
-                onCheckedChange={(v) => updateGeneral({ notifications: v })}
+                onCheckedChange={toggleNotifications}
               />
               {general?.notifications && notificationPermission && notificationPermission !== "granted" && (
                 <p className="pb-2.5 text-sm text-destructive">

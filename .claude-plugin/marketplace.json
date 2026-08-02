@@ -1,0 +1,13 @@
+{
+  "name": "mobius-mcp",
+  "owner": {
+    "name": "Topman-14"
+  },
+  "plugins": [
+    {
+      "name": "mobius-mcp",
+      "source": "./",
+      "description": "Scenario-focused skills for driving and debugging a running web app via the mobius-mcp MCP server."
+    }
+  ]
+}
