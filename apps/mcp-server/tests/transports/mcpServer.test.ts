@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import type { ToolDef } from "../types.js";
+import type { ToolDef } from "../../src/types.js";
 
 function recordTool(defs: Map<string, ToolDef>, name: string, schema: z.ZodRawShape, handler: (args: unknown) => Promise<unknown>): void {
   const validator = z.object(schema);

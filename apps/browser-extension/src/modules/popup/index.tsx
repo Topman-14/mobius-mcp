@@ -224,7 +224,7 @@ export function Popup() {
             <div className="px-3 py-6 text-center text-xs text-muted-foreground">No events yet</div>
           ) : (
             <ScrollArea className="h-32">
-              <ul className="flex flex-col gap-1.5 px-3 py-2">
+              <ul className="flex flex-col gap-1.5 px-3 py-2 overflow-x-auto">
                 {feed.map((item, i) => (
                   <li key={`${item.timestamp}-${i}`} className="flex items-start gap-2 text-xs overflow-x-hidden">
                     <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-none ${KIND_DOT[item.kind]}`} />
@@ -314,11 +314,11 @@ export function Popup() {
           </Button>
         </div>
 
-        {state && !state.paused ? <p className="text-center text-sm pt-2 text-muted-foreground">Your agent can now fetch this tab's runtime context via MCP.</p> : null}
+        {state && !state.paused ? <p className="text-center text-xs pt-2 text-muted-foreground">Your agent can now fetch this tab's runtime context via MCP.</p> : null}
 
         {!Boolean(restrictedReason) && host && !autoEnabled && !ruleJustAdded && (
           <Button variant="outline" onClick={addCurrentHostRule} className="h-auto justify-start border-dashed py-2 w-full">
-            <span className="whitespace-normal text-left">
+            <span className="whitespace-normal text-left text-sm">
               Want to always capture <span className="font-mono">{host}</span>? Click here to auto-enable this host.
             </span>
           </Button>

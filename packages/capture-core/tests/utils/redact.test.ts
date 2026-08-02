@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_REDACTION } from "../data.ts";
-import { redactBodyText, redactHeaderValue, redactText } from "./redact.ts";
+import { DEFAULT_REDACTION } from "../../src/data.ts";
+import { redactBodyText, redactHeaderValue, redactText } from "../../src/utils/redact.ts";
 
 describe("redactHeaderValue", () => {
   it("redacts the default sensitive headers case-insensitively", () => {

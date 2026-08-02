@@ -1,7 +1,7 @@
 import { startCapture, patchDomMutations, type CaptureStartOptions, type CapturedEvent } from "@mobius-mcp/capture-core";
-import "./overlay/mount.js";
-import "./snapshot/mount.js";
-import "./actions/mount.js";
+import "./src/modules/overlay/mount.js";
+import "./src/modules/snapshot/mount.js";
+import "./src/lib/actions/mount.js";
 
 const MESSAGE_SOURCE = "mobius-mcp";
 

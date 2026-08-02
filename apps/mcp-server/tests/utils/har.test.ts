@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserEvent } from "@mobius-mcp/capture-core";
-import { toHar, type HarBodyFetcher } from "./har.js";
+import { toHar, type HarBodyFetcher } from "../../src/utils/har.js";
 
 function networkEvent(overrides: Record<string, unknown> = {}): BrowserEvent {
   return {

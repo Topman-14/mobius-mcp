@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserEvent } from "@mobius-mcp/capture-core";
-import { EventStore } from "./store.js";
+import { EventStore } from "../../src/services/store.js";
 
 function addConsole(store: EventStore, clientId: string, message: string): BrowserEvent {
   return store.addEvent({ id: "", clientId, type: "console.log", timestamp: Date.now(), message } as unknown as Omit<BrowserEvent, "seq">);

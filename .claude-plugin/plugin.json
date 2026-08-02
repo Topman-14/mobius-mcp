@@ -1,7 +1,7 @@
 {
   "name": "mobius-mcp",
   "version": "1.0.2",
-  "description": "Scenario-focused skills for debugging a running web app via the mobius-mcp MCP server — dead clicks, silent API failures, contract drift, perf stakeouts, session drift, and reproducing bugs.",
+  "description": "Scenario-focused skills for driving and debugging a running web app via the mobius-mcp MCP server — broken flows, QA walkthroughs, bug repros, perf stakeouts, and page audits.",
   "author": {
     "name": "Topman-14"
   },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { JobManager } from "./jobs.js";
+import { JobManager } from "../../src/services/jobs.js";
 
 describe("JobManager", () => {
   it("marks a cancelled job cancelled rather than done", async () => {

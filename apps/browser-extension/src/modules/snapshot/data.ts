@@ -4,7 +4,7 @@ export const ACCESSIBLE_NAME_MAX_CHARS = 200;
 
 export const MAX_FIND_RESULTS = 20;
 
-export const FIND_MIN_SCORE = 1;
+export const FIND_MIN_SCORE = 3;
 
 export const INTERACTIVE_TAGS = new Set(["A", "BUTTON", "INPUT", "SELECT", "TEXTAREA", "SUMMARY", "OPTION"]);
 

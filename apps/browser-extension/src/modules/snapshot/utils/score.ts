@@ -26,27 +26,38 @@ export function parseQuery(query: string): QueryIntent {
   return { tokens, phrase: tokens.join(" "), roles: rolesMatching(tokens) };
 }
 
-export function scoreCandidate(intent: QueryIntent, name: string, role: string, interactive: boolean): number {
-  const nameTokens = tokenize(name);
-  if (nameTokens.length === 0 && intent.roles.size === 0) return 0;
+function containsRun(haystack: string[], needle: string[]): boolean {
+  if (needle.length === 0 || needle.length > haystack.length) return false;
+  return haystack.some((_, start) => needle.every((token, offset) => haystack[start + offset] === token));
+}
 
-  const namePhrase = nameTokens.join(" ");
+function nameScoreFor(intent: QueryIntent, nameTokens: string[]): number {
+  if (nameTokens.length === 0) return 0;
+
+  const sameLength = nameTokens.length === intent.tokens.length;
+  if (sameLength && containsRun(nameTokens, intent.tokens)) return 12;
+  if (containsRun(intent.tokens, nameTokens) || containsRun(nameTokens, intent.tokens)) return 6;
+
   let score = 0;
-
-  if (namePhrase && namePhrase === intent.phrase) score += 12;
-  else if (namePhrase && intent.phrase.includes(namePhrase)) score += 6;
-  else if (namePhrase && namePhrase.includes(intent.phrase)) score += 5;
-
   for (const token of intent.tokens) {
     if (nameTokens.includes(token)) score += 3;
     else if (nameTokens.some((nameToken) => nameToken.startsWith(token) || token.startsWith(nameToken))) score += 1;
   }
+  return score;
+}
 
-  if (intent.roles.has(role)) score += 4;
+export function scoreCandidate(intent: QueryIntent, name: string, role: string, interactive: boolean): number {
+  const nameTokens = tokenize(name);
+  const nameScore = nameScoreFor(intent, nameTokens);
+  const roleMatch = intent.roles.has(role);
+  if (nameScore === 0 && !roleMatch) return 0;
+
+  let score = nameScore;
+  if (roleMatch) score += 4;
   else if (intent.roles.size > 0) score -= 2;
 
   if (interactive) score += 1;
-  if (nameTokens.length > 0) score += Math.max(0, 2 - Math.floor(nameTokens.length / 6));
+  if (nameScore >= 3) score += Math.max(0, 2 - Math.floor(nameTokens.length / 6));
 
   return score;
 }

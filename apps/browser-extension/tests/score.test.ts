@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseQuery, scoreCandidate, tokenize } from "./score.ts";
+import { parseQuery, scoreCandidate, tokenize } from "../src/modules/snapshot/utils/score.js";
 
 const score = (query: string, name: string, role: string, interactive = true) => scoreCandidate(parseQuery(query), name, role, interactive);
 
@@ -29,6 +29,20 @@ describe("scoreCandidate", () => {
 
   it("still matches when the query omits a role word", () => {
     expect(score("newsletter signup", "Newsletter signup", "textbox")).toBeGreaterThan(1);
+  });
+
+  it("does not treat a name that is merely a substring of a query token as a match", () => {
+    expect(score("newsletter signup email field", "New", "div", false)).toBeLessThan(3);
+    expect(score("newsletter signup email field", "News", "div", false)).toBeLessThan(3);
+  });
+
+  it("excludes elements sharing neither a name token nor the queried role", () => {
+    expect(score("newsletter signup email field", "Models", "link")).toBe(0);
+    expect(score("checkout button", "Research", "link")).toBe(0);
+  });
+
+  it("keeps a role-only match when the label does not echo the query", () => {
+    expect(score("newsletter signup email field", "Get the latest updates", "textbox")).toBeGreaterThanOrEqual(3);
   });
 
   it("does not let a long name outrank a tight one on the same tokens", () => {

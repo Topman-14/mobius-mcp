@@ -1,6 +1,6 @@
 import { elementFor, resolveTarget } from "./resolve.js";
 import type { ActionTarget, HitTest } from "./types.js";
-import type { CursorIconKey } from "../overlay/data.js";
+import type { CursorIconKey } from "../../modules/overlay/data.js";
 
 // Exposed for CDP `Runtime.evaluate` to call (background.ts's action commands — click, hover,
 // ...). Resolves the target, moves the cursor overlay there, logs it to the HUD, and hands

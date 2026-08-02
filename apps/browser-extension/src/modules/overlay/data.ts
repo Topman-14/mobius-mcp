@@ -6,8 +6,8 @@ export const CURSOR_MOVE_EASING = "cubic-bezier(0.22, 0.61, 0.36, 1)";
 export const CURSOR_COLOR = "#0a0a0a";
 export const CURSOR_GLOW_COLOR = "#4cff3d";
 export const CURSOR_GLOW_SIZE_PX = 72;
-export const CURSOR_GLOW_OPACITY = 0.95;
-export const CURSOR_GLOW_GRADIENT = `radial-gradient(circle, ${CURSOR_GLOW_COLOR} 0%, ${CURSOR_GLOW_COLOR} 18%, ${CURSOR_GLOW_COLOR}b3 34%, ${CURSOR_GLOW_COLOR}4d 52%, transparent 72%)`;
+export const CURSOR_GLOW_OPACITY = 0.5;
+export const CURSOR_GLOW_GRADIENT = `radial-gradient(circle, ${CURSOR_GLOW_COLOR} 0%, ${CURSOR_GLOW_COLOR} 34%, ${CURSOR_GLOW_COLOR}e6 50%, ${CURSOR_GLOW_COLOR}99 64%, ${CURSOR_GLOW_COLOR}40 80%, transparent 92%)`;
 
 // Phosphor "Cursor" icon, fill weight, inlined (MIT) to avoid an extension-resource fetch
 // from a MAIN-world page context.

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { ClientInfo } from "@mobius-mcp/capture-core";
-import { ClientRegistry } from "../services/registry.js";
-import type { ToolContent } from "../types.js";
-import { resolveTabId } from "./tools.js";
+import { ClientRegistry } from "../../src/services/registry.js";
+import type { ToolContent } from "../../src/types.js";
+import { resolveTabId } from "../../src/utils/tools.js";
 
 const socket = { readyState: 1 } as never;
 

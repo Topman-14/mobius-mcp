@@ -1,4 +1,4 @@
-import { resolveRef } from "../snapshot/registry.js";
+import { resolveRef } from "../../modules/snapshot/registry.js";
 import type { ActionTarget, HitTest, ResolvedTarget } from "./types.js";
 
 export class ActionTargetError extends Error {}

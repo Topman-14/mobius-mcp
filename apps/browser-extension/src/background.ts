@@ -2,8 +2,8 @@ import { PROTOCOL_VERSION, type ClientMessage, type CommandMessage, type ServerM
 import { findMatchingRule, getRules } from "./lib/rules.js";
 import { getTabState, setTabState, setPaused, clearTabState, getTabIdForClient, getAllTabStates, type TabState } from "./lib/tab-state.js";
 import { sendCdp, detach, findRequestId } from "./lib/cdp.js";
-import { CURSOR_MOVE_MS, type CursorIconKey } from "../overlay/data.js";
-import type { HitTest, PreparedTarget } from "../actions/types.js";
+import { CURSOR_MOVE_MS, type CursorIconKey } from "./modules/overlay/data.js";
+import type { HitTest, PreparedTarget } from "./lib/actions/types.js";
 import {
   setConnectionStatus,
   recordEvent,
