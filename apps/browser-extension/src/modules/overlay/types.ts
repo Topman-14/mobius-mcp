@@ -17,4 +17,5 @@ export interface OverlayApi {
   hideCursor(): void;
   hudLog(message: string): void;
   setHudExpanded(expanded: boolean): void;
+  destroy(): void;
 }
