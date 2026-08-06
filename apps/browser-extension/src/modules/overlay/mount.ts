@@ -31,6 +31,10 @@ function mount(): OverlayApi {
     hideCursor: cursor.hide,
     hudLog: hud.log,
     setHudExpanded: hud.setExpanded,
+    destroy() {
+      host.remove();
+      api = undefined;
+    },
   };
 }
 
@@ -45,4 +49,5 @@ window.__mobiusOverlay = {
   hideCursor: () => getOverlay().hideCursor(),
   hudLog: (message) => getOverlay().hudLog(message),
   setHudExpanded: (expanded) => getOverlay().setHudExpanded(expanded),
+  destroy: () => api?.destroy(),
 };

@@ -23,6 +23,7 @@ window.addEventListener("message", (message) => {
     stopCapture = null;
     stopDom?.();
     stopDom = null;
+    window.__mobiusOverlay?.destroy();
   } else if (message.data.type === "start-dom" && !stopDom) {
     stopDom = patchDomMutations(emit);
   } else if (message.data.type === "stop-dom") {
