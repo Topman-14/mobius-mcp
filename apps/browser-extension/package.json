@@ -1,6 +1,6 @@
 {
   "name": "@mobius-mcp/browser-extension",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Chromium extension that captures browser runtime events and streams them to a local mobius-mcp server",
   "license": "MIT",
   "private": true,
