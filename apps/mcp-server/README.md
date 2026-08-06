@@ -1,12 +1,12 @@
 # mobius-mcp
 
-MCP server that maintains a live stream of browser runtime events — console logs, errors, network requests, and navigation — and exposes them to AI coding agents (Claude Code, Codex CLI, Gemini CLI, etc.) as MCP tools. Recent history is in-memory for fast reads, mirrored to disk so it survives a server restart (see [Configuration](#configuration)).
+MCP server that gives an AI agent a real browser it can operate and account for — it drives the Chrome you're already signed into and exposes what it captures (console logs, errors, network requests with bodies, navigation, DOM changes) to AI coding agents (Claude Code, Codex CLI, Gemini CLI, etc.) as MCP tools. Recent history is in-memory for fast reads, mirrored to disk so it survives a server restart (see [Configuration](#configuration)).
 
 Local-first: everything runs on `localhost`, no cloud services, no telemetry, no external APIs.
 
 Pair it with a browser-side client:
 
-- **[Mobius browser extension](https://chromewebstore.google.com/detail/bdhnfoelpknephokgkldjopdggkakdop?utm_source=item-share-cb)** — Chromium extension, adds browser control, screenshots, DOM/accessibility snapshots, CPU/memory profiling, and `evaluate_js` on top of event streaming (via `chrome.debugger`/CDP). Interactive: you can click around and trigger events yourself while the agent inspects them, instead of the agent driving headless automation blind.
+- **[Mobius browser extension](https://chromewebstore.google.com/detail/bdhnfoelpknephokgkldjopdggkakdop?utm_source=item-share-cb)** — Chromium extension, adds browser control, element lookup (`find`/`snapshot_page`) and trusted input (`click`, `type_text`, `run_sequence`, …), screenshots, DOM/accessibility snapshots, CPU/memory profiling, and `evaluate_js` on top of event streaming (via `chrome.debugger`/CDP). Driven tabs show a synthetic cursor and HUD, so operating a live account isn't a black box. Interactive: you can click around and trigger events yourself while the agent inspects them, instead of the agent driving headless automation blind.
 - **[`mobius-client`](https://www.npmjs.com/package/mobius-client)** — drop-in npm package for direct app integration, no extension required, streams console/error/network/navigation events only. **Development is currently paused** (see the [root ROADMAP.md](https://github.com/Topman-14/mobius-mcp/blob/main/ROADMAP.md) for why) — the extension is the recommended client.
 
 Source: https://github.com/Topman-14/mobius-mcp
@@ -86,6 +86,13 @@ Set these as environment variables in your MCP client's server config (the `env`
 
 ## MCP tools
 
+**Find and drive** (extension only, requires `chrome.debugger`/CDP). Every action below takes `observe: { windowMs, types? }` to return what the app did afterward, and reports `hitTest` so a blocked interaction is never mistaken for a working one.
+- `find` — locate elements by natural-language description; returns ranked, clickable refs
+- `snapshot_page` — pruned, indexed tree of interactive/labelled/text-bearing elements for surveying a page
+- `click`, `hover`, `type_text`, `press_key`, `scroll_to`, `scroll_by`, `select_option`, `set_checkbox` — trusted CDP input events, each moving the on-page cursor overlay
+- `run_sequence` — many steps against one tab in a single round trip, stopping at the first failure
+- `open_tab`, `enable_capture` — start a capture session without a toolbar click
+
 **Event queries**
 - `get_recent_logs` — recent `console.log`/`info`/`warn`
 - `get_recent_errors` — recent `console.error`, `window.onerror`, unhandled rejections
@@ -129,6 +136,9 @@ CDP-backed tools make Chrome show a persistent "being debugged" banner on the ta
 | Console/error/network/navigation streaming | ✅ | ✅ |
 | Multi-tab awareness | ✅ | ✅ (one entry per app instance) |
 | Browser control (navigate/reload/switch) | ✅ | ❌ |
+| Element lookup (`find`, `snapshot_page`) and input synthesis (`click`, `type_text`, …) | ✅ (requires CDP) | ❌ |
+| Instrumented actions (`observe`), hit-testing, `run_sequence` | ✅ (requires CDP) | ❌ |
+| Cursor + HUD overlay on driven tabs | ✅ | ❌ |
 | Debug sessions | ✅ | ✅ (no DOM mutations) |
 | Screenshots, DOM/accessibility snapshots | ✅ | ❌ |
 | CPU/memory profiling | ✅ | ❌ |
