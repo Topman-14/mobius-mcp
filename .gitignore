@@ -26,3 +26,4 @@ marketing/assets/store/*
 marketing/capture/.playwright-profile*/
 .vscode/*
 !.vscode/extensions.json
+docs/*
