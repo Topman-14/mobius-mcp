@@ -11,6 +11,8 @@
   <a href="https://github.com/Topman-14/mobius-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Topman-14/mobius-mcp/actions/workflows/ci.yml/badge.svg"></a>
 </div>
 
+https://github.com/user-attachments/assets/65b32fa3-4f5e-4873-b03b-334803820bc8
+
 ## Table of contents
 
 - [Introduction](#introduction)
