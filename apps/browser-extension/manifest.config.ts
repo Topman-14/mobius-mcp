@@ -5,7 +5,7 @@ export default defineManifest({
   name: "Mobius",
   version: "1.1.0",
   description:
-    "Let your AI coding agent debug your app in your real, logged-in browser — it drives the page and sees the console errors and failed requests it causes.",
+    "Let your AI coding agent drive and debug your app in your real, logged-in browser and see what it causes.",
   permissions: ["scripting", "storage", "tabs", "webNavigation", "debugger", "alarms"],
   optional_permissions: ["notifications"],
   host_permissions: ["<all_urls>"],

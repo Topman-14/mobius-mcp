@@ -101,7 +101,14 @@ export class DiagnosticsService {
         ];
         break;
       case "ready":
-        remediation = [];
+        remediation = extensionConnected
+          ? []
+          : [
+              {
+                step: "A tab is streaming, but the extension's browser-control client isn't connected yet — open_tab, list_tabs, and enable_capture will fail until it reconnects (up to ~1 minute).",
+                userAction: false,
+              },
+            ];
         break;
       case "handshake_rejected":
         remediation = [
@@ -147,7 +154,9 @@ export class DiagnosticsService {
       remediation,
       agentGuidance:
         state === "ready"
-          ? "mobius-mcp is ready — proceed with other tools."
+          ? extensionConnected
+            ? "mobius-mcp is ready — proceed with other tools."
+            : "Tab capture is ready, but open_tab/list_tabs/enable_capture need the extension's browser-control client, which isn't connected yet — it reconnects automatically within ~1 minute. Tools that only need an already-streaming tab (e.g. get_recent_errors, evaluate_js) are unaffected; retry mobius_diagnose before using the others."
           : extensionConnected && (state === "no_client_ever_connected" || state === "client_disconnected")
             ? "The extension is connected but no tab is streaming. Enable one yourself: list_tabs (or open_tab) to find/create the target tab, then enable_capture with its chromeTabId — no user action is required."
             : state === "handshake_rejected"
