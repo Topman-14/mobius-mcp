@@ -188,7 +188,9 @@ async function dispatchClick(tabId: number, x: number, y: number): Promise<void>
 
 async function runCommand(message: CommandMessage): Promise<unknown> {
   if (message.command === "list_tabs") {
-    const tabs = await chrome.tabs.query({});
+    const { query } = message.params as { query?: string };
+    const needle = query?.toLowerCase();
+    const tabs = (await chrome.tabs.query({})).filter((t) => !needle || `${t.url} ${t.title}`.toLowerCase().includes(needle));
     return tabs.map((t) => ({ tabId: t.id, url: t.url, title: t.title, active: t.active }));
   }
 

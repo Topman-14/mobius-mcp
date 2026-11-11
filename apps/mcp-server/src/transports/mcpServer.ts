@@ -102,33 +102,33 @@ export function createMcpServer(
   server.tool(
     "get_recent_logs",
     "Get the most recent console.log/info/warn events from a connected browser tab.",
-    { tabId: z.string().optional(), chromeTabId: z.number().int().optional(), limit: z.number().int().positive().max(500).default(50) },
-    async ({ tabId, chromeTabId, limit }) => {
+    { tabId: z.string().optional(), chromeTabId: z.number().int().optional(), limit: z.number().int().positive().max(500).default(50), sinceSeq: z.number().int().nonnegative().optional() },
+    async ({ tabId, chromeTabId, limit, sinceSeq }) => {
       const resolved = resolveTabId(registry, activeTabId(), tabId, chromeTabId);
       if ("error" in resolved) return resolved.error;
-      return toolResultWithCaptureHint(store.getRecent(resolved.clientId, CONSOLE_TYPES, limit), registry, resolved.clientId, "console");
+      return toolResultWithCaptureHint(store.getRecent(resolved.clientId, CONSOLE_TYPES, limit, sinceSeq), registry, resolved.clientId, "console");
     },
   );
 
   server.tool(
     "get_recent_errors",
     "Get the most recent console.error, window.onerror, and unhandled promise rejection events from a connected browser tab.",
-    { tabId: z.string().optional(), chromeTabId: z.number().int().optional(), limit: z.number().int().positive().max(500).default(50) },
-    async ({ tabId, chromeTabId, limit }) => {
+    { tabId: z.string().optional(), chromeTabId: z.number().int().optional(), limit: z.number().int().positive().max(500).default(50), sinceSeq: z.number().int().nonnegative().optional() },
+    async ({ tabId, chromeTabId, limit, sinceSeq }) => {
       const resolved = resolveTabId(registry, activeTabId(), tabId, chromeTabId);
       if ("error" in resolved) return resolved.error;
-      return toolResultWithCaptureHint(store.getRecent(resolved.clientId, ERROR_TYPES, limit), registry, resolved.clientId, "errors");
+      return toolResultWithCaptureHint(store.getRecent(resolved.clientId, ERROR_TYPES, limit, sinceSeq), registry, resolved.clientId, "errors");
     },
   );
 
   server.tool(
     "get_network_requests",
     "Get the most recent fetch/XHR network requests observed in a connected browser tab. Each request is exactly one event carrying method/URL/status/duration/headers together with size-capped (~20KB, redacted) request/response bodies where the content-type is text-like — nothing arrives as a separate follow-up. Check requestBodyOmittedReason/responseBodyOmittedReason for why a body is missing (binary, FormData, non-text content-type) before assuming get_response_body/get_request_body is needed.",
-    { tabId: z.string().optional(), chromeTabId: z.number().int().optional(), limit: z.number().int().positive().max(500).default(50) },
-    async ({ tabId, chromeTabId, limit }) => {
+    { tabId: z.string().optional(), chromeTabId: z.number().int().optional(), limit: z.number().int().positive().max(500).default(50), sinceSeq: z.number().int().nonnegative().optional() },
+    async ({ tabId, chromeTabId, limit, sinceSeq }) => {
       const resolved = resolveTabId(registry, activeTabId(), tabId, chromeTabId);
       if ("error" in resolved) return resolved.error;
-      return toolResultWithCaptureHint(store.getRecent(resolved.clientId, NETWORK_TYPES, limit), registry, resolved.clientId, "network");
+      return toolResultWithCaptureHint(store.getRecent(resolved.clientId, NETWORK_TYPES, limit, sinceSeq), registry, resolved.clientId, "network");
     },
   );
 
@@ -220,12 +220,12 @@ export function createMcpServer(
 
   server.tool(
     "list_tabs",
-    "List all open browser tabs (not just ones with capture enabled), via a connected extension.",
-    {},
-    async () => {
+    "List open browser tabs (not just ones with capture enabled), via a connected extension. The full list can be large — pass query to keep only tabs whose url or title contains it (case-insensitive).",
+    { query: z.string().optional() },
+    async ({ query }) => {
       const resolved = resolveBrowserControlClient(registry);
       if ("error" in resolved) return resolved.error;
-      return runCommand(dispatcher, resolved.clientId, "list_tabs");
+      return runCommand(dispatcher, resolved.clientId, "list_tabs", { query });
     },
   );
 
