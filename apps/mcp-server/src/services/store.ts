@@ -14,8 +14,8 @@ class TabBuffer {
     }
   }
 
-  getRecent(types: EventType[], limit: number): BrowserEvent[] {
-    return this.events.filter((e) => types.includes(e.type)).slice(-limit);
+  getRecent(types: EventType[], limit: number, sinceSeq = 0): BrowserEvent[] {
+    return this.events.filter((e) => e.seq > sinceSeq && types.includes(e.type)).slice(-limit);
   }
 
   getSince(cursor: number, opts: { types?: EventType[]; limit?: number } = {}): { events: BrowserEvent[]; scannedTo: number } {
@@ -78,8 +78,8 @@ export class EventStore {
     return () => this.emitter.off("event", listener);
   }
 
-  getRecent(clientId: string, types: EventType[], limit: number): BrowserEvent[] {
-    return this.buffers.get(clientId)?.getRecent(types, limit) ?? [];
+  getRecent(clientId: string, types: EventType[], limit: number, sinceSeq?: number): BrowserEvent[] {
+    return this.buffers.get(clientId)?.getRecent(types, limit, sinceSeq) ?? [];
   }
 
   getSince(clientId: string, cursor: number, opts: { types?: EventType[]; limit?: number } = {}): { events: BrowserEvent[]; cursor: number } {
